@@ -158,7 +158,7 @@ function ClearCache() {
   const [cleared, setCleared] = useState(false)
   return (
     <div className="flex flex-col gap-2 border-t border-muted-200 pt-4">
-      <Label>Clear a cached repo</Label>
+      <p className="text-sm font-medium">Clear a cached repo</p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           placeholder="workspace"

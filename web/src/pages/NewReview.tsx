@@ -144,8 +144,8 @@ export function NewReview() {
                       className="mt-0.5 shrink-0"
                     />
                     <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm font-medium">{s.name}</span>
-                      <span className="text-muted-foreground truncate text-xs">{s.description}</span>
+                      <span className="min-w-0 truncate text-sm font-medium">{s.name}</span>
+                      <span className="text-muted-foreground min-w-0 truncate text-xs">{s.description}</span>
                     </span>
                   </label>
                 ))}
@@ -181,7 +181,7 @@ export function NewReview() {
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <StatusBadge status={r.status} />
-                  <span className="truncate">{r.prTitle}</span>
+                  <span className="min-w-0 flex-1 truncate">{r.prTitle}</span>
                 </span>
                 <span className="text-muted-foreground flex shrink-0 items-center gap-3 text-xs">
                   <span className="font-family-mono">
