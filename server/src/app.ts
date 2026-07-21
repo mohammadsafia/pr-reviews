@@ -124,7 +124,9 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
       if (s && run) {
         run.status = 'failed'
         run.error = err.message
-        run.transcript.push({ kind: 'error', text: err.message, at: new Date().toISOString() })
+        const errorEvent: RunEvent = { kind: 'error', text: err.message, at: new Date().toISOString() }
+        run.transcript.push(errorEvent)
+        events.emit(runId, errorEvent)
       }
     } finally {
       if (s && run) {
