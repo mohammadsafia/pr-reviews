@@ -1,0 +1,19 @@
+body { font-family: -apple-system, system-ui, sans-serif; margin: 0; }
+.app { max-width: 860px; margin: 0 auto; padding: 0 1rem 3rem; }
+header { display: flex; justify-content: space-between; padding: 1rem 0; border-bottom: 1px solid #ddd; }
+main input, main textarea { display: block; width: 100%; box-sizing: border-box; margin: 0.35rem 0 0.9rem; padding: 0.5rem; }
+fieldset { margin: 0.75rem 0; }
+fieldset label { display: inline-flex; align-items: center; gap: 0.3rem; margin-right: 1rem; }
+button { padding: 0.5rem 1rem; cursor: pointer; }
+.error { color: #c0392b; }
+.warn { color: #b9770e; }
+.feed { max-height: 20rem; overflow-y: auto; background: #111; color: #ddd; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; }
+.feed p { margin: 0.15rem 0; }
+.ev-error { color: #ff8a80; }
+.sev-high { color: #fff; background: #c0392b; display: inline-block; padding: 0.1rem 0.6rem; border-radius: 4px; }
+.sev-medium { color: #fff; background: #b9770e; display: inline-block; padding: 0.1rem 0.6rem; border-radius: 4px; }
+.sev-low { color: #fff; background: #2471a3; display: inline-block; padding: 0.1rem 0.6rem; border-radius: 4px; }
+.sev-info { color: #333; background: #d5dbdb; display: inline-block; padding: 0.1rem 0.6rem; border-radius: 4px; }
+article { border: 1px solid #e0e0e0; border-radius: 6px; padding: 0.6rem 0.9rem; margin: 0.6rem 0; }
+article pre { background: #f6f6f6; padding: 0.5rem; overflow-x: auto; }
+.confirm { border: 2px solid #b9770e; border-radius: 6px; padding: 0.75rem 1rem; }
