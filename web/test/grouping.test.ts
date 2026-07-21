@@ -1,16 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRoute } from '../src/App.js'
-import { groupSkillsBySource } from '../src/screens/NewReview.js'
-
-describe('parseRoute', () => {
-  it('routes hashes to screens', () => {
-    expect(parseRoute('')).toEqual({ screen: 'new' })
-    expect(parseRoute('#/')).toEqual({ screen: 'new' })
-    expect(parseRoute('#/runs/abc')).toEqual({ screen: 'run', id: 'abc' })
-    expect(parseRoute('#/settings')).toEqual({ screen: 'settings' })
-    expect(parseRoute('#/junk')).toEqual({ screen: 'new' })
-  })
-})
+import { groupSkillsBySource } from '../src/pages/NewReview.js'
 
 describe('groupSkillsBySource', () => {
   it('groups by source dir preserving order', () => {

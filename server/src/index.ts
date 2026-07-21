@@ -8,6 +8,13 @@ const app = buildApp()
 const webDist = join(dirname(fileURLToPath(import.meta.url)), '../../web/dist')
 if (existsSync(webDist)) {
   app.register(fastifyStatic, { root: webDist })
+  app.setNotFoundHandler((request, reply) => {
+    if (request.method === 'GET' && !request.url.startsWith('/api')) {
+      reply.sendFile('index.html')
+      return
+    }
+    reply.code(404).send({ error: 'Not found' })
+  })
 }
 const port = Number(process.env.PORT ?? 5175)
 app.listen({ port, host: '127.0.0.1' }).then(() => {

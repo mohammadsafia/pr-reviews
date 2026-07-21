@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
 import { createRun, getSkills, listRuns } from '../api.js'
 import type { RunRecord, SkillInfo } from '../types.js'
 
@@ -14,6 +15,7 @@ export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[
 const LAST_SKILLS_KEY = 'pr-reviewer.lastSkills'
 
 export function NewReview() {
+  const navigate = useNavigate()
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(JSON.parse(localStorage.getItem(LAST_SKILLS_KEY) ?? '[]')),
@@ -43,7 +45,7 @@ export function NewReview() {
     setOversized(null)
     try {
       const res = await createRun({ url, skills: [...selected], focus: focus || undefined, force })
-      if (res.id) window.location.hash = `#/runs/${res.id}`
+      if (res.id) navigate(`/runs/${res.id}`)
       else if (res.status === 409) setOversized(res.diffLines ?? 0)
       else setError(res.error ?? 'Failed to start run')
     } finally {
@@ -93,9 +95,9 @@ export function NewReview() {
       <ul>
         {runs.map((r) => (
           <li key={r.id}>
-            <a href={`#/runs/${r.id}`}>
+            <Link to={`/runs/${r.id}`}>
               [{r.status}] {r.prTitle} — {r.pr.workspace}/{r.pr.repo}#{r.pr.id}
-            </a>
+            </Link>
           </li>
         ))}
       </ul>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { createRun, getRun, postComments, subscribeRun } from '../api.js'
 import type { Finding, RunEvent, RunRecord, Severity } from '../types.js'
 
@@ -15,7 +16,9 @@ export function groupFindingsBySeverity(
   })).filter((g) => g.items.length > 0)
 }
 
-export function RunView({ id }: { id: string }) {
+export function RunView() {
+  const { id = '' } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [run, setRun] = useState<RunRecord | null>(null)
   const [live, setLive] = useState<RunEvent[]>([])
   const [checked, setChecked] = useState<Set<number>>(new Set())
@@ -97,7 +100,7 @@ export function RunView({ id }: { id: string }) {
                 focus: run.focus,
                 force: true,
               })
-              if (res.id) window.location.hash = `#/runs/${res.id}`
+              if (res.id) navigate(`/runs/${res.id}`)
             }}
           >
             Retry run

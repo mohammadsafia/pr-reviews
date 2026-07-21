@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { groupFindingsBySeverity } from '../src/screens/RunView.js'
+import { groupFindingsBySeverity } from '../src/pages/RunView.js'
 import type { Finding } from '../src/types.js'
 
 const f = (severity: Finding['severity'], file: string): Finding => ({
