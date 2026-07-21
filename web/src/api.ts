@@ -23,13 +23,22 @@ export async function createRun(input: {
   focus?: string
   force?: boolean
 }): Promise<{ id?: string; error?: string; diffLines?: number; status: number }> {
-  const res = await fetch('/api/runs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const body = (await res.json()) as any
-  return { ...body, status: res.status }
+  try {
+    const res = await fetch('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    let body: any = {}
+    try {
+      body = await res.json()
+    } catch {
+      body = { error: `Server returned a non-JSON response (HTTP ${res.status})` }
+    }
+    return { ...body, status: res.status }
+  } catch (err: any) {
+    return { error: err?.message ?? 'Network error', status: 0 }
+  }
 }
 
 export const postComments = (id: string, findingIndexes: number[]) =>

@@ -41,11 +41,14 @@ export function NewReview() {
     setBusy(true)
     setError('')
     setOversized(null)
-    const res = await createRun({ url, skills: [...selected], focus: focus || undefined, force })
-    setBusy(false)
-    if (res.id) window.location.hash = `#/runs/${res.id}`
-    else if (res.status === 409) setOversized(res.diffLines ?? 0)
-    else setError(res.error ?? 'Failed to start run')
+    try {
+      const res = await createRun({ url, skills: [...selected], focus: focus || undefined, force })
+      if (res.id) window.location.hash = `#/runs/${res.id}`
+      else if (res.status === 409) setOversized(res.diffLines ?? 0)
+      else setError(res.error ?? 'Failed to start run')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -83,7 +86,7 @@ export function NewReview() {
       {oversized !== null && (
         <p className="warn">
           Large diff ({oversized} changed lines) — this may be slow and costly.{' '}
-          <button onClick={() => submit(true)}>Proceed anyway</button>
+          <button disabled={busy} onClick={() => submit(true)}>Proceed anyway</button>
         </p>
       )}
       <h3>Recent runs</h3>

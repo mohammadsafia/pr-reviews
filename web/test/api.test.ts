@@ -18,4 +18,18 @@ describe('createRun', () => {
     expect(r.status).toBe(409)
     expect(r.diffLines).toBe(9001)
   })
+
+  it('handles network failure without throwing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('boom') }))
+    const r = await createRun({ url: 'u', skills: [] })
+    expect(r.status).toBe(0)
+    expect(r.error).toContain('boom')
+  })
+
+  it('handles non-JSON response gracefully', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>bad gateway</html>', { status: 502 })))
+    const r = await createRun({ url: 'u', skills: [] })
+    expect(r.status).toBe(502)
+    expect(r.error).toContain('non-JSON')
+  })
 })
