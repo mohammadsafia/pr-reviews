@@ -6,6 +6,7 @@ import { DEFAULT_CONFIG_PATH, loadConfig, saveConfig, type Config } from './conf
 import { RepoCache } from './repos/cache.js'
 import { countDiffLines } from './review/findings.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
+import { makeSerialQueue } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { RunStore } from './store/runs.js'
 import type { PrMeta, PrRef, RunEvent, RunRecord } from './types.js'
@@ -17,7 +18,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
   const agentQuery = deps.agentQuery ?? sdkQuery
   const app = Fastify()
   const events = new EventEmitter()
-  let queue: Promise<void> = Promise.resolve()
+  const runQueue = makeSerialQueue((err) => app.log.error(err))
 
   const cfg = (): Config => loadConfig(configPath)
   const store = (): RunStore => new RunStore(cfg().runsDir)
@@ -78,7 +79,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
       focus: body.focus,
       status: 'queued',
     })
-    queue = queue.then(() => executeRun(run.id, { pr, meta, diff, body }))
+    runQueue.push(() => executeRun(run.id, { pr, meta, diff, body }))
     return reply.code(202).send({ id: run.id })
   })
 
@@ -86,16 +87,18 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     runId: string,
     ctx: { pr: PrRef; meta: PrMeta; diff: string; body: { skills: string[]; focus?: string } },
   ): Promise<void> {
-    const c = cfg()
-    const s = store()
-    const run = s.get(runId)
-    if (!run) return
-    const emit = (e: RunEvent) => {
-      run.transcript.push(e)
-      s.save(run)
-      events.emit(runId, e)
-    }
+    let s: RunStore | undefined
+    let run: RunRecord | undefined
     try {
+      const c = cfg()
+      s = store()
+      run = s.get(runId)
+      if (!run) return
+      const emit = (e: RunEvent) => {
+        run!.transcript.push(e)
+        s!.save(run!)
+        events.emit(runId, e)
+      }
       run.status = 'running'
       s.save(run)
       emit({ kind: 'status', text: 'Preparing repository checkout…', at: new Date().toISOString() })
@@ -118,12 +121,16 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
       )
       run.status = 'completed'
     } catch (err: any) {
-      run.status = 'failed'
-      run.error = err.message
-      emit({ kind: 'error', text: err.message, at: new Date().toISOString() })
+      if (s && run) {
+        run.status = 'failed'
+        run.error = err.message
+        run.transcript.push({ kind: 'error', text: err.message, at: new Date().toISOString() })
+      }
     } finally {
-      run.finishedAt = new Date().toISOString()
-      s.save(run)
+      if (s && run) {
+        run.finishedAt = new Date().toISOString()
+        s.save(run)
+      }
       events.emit(runId, { kind: 'done' })
     }
   }
