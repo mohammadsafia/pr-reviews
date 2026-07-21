@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RepoCache } from '../src/repos/cache.js'
@@ -56,6 +56,22 @@ describe('RepoCache', () => {
     const dir = await cache.ensureCheckout(pr, { cloneUrl: origin, sourceBranch: 'feat/x', commit })
     cache.clear(pr)
     expect(existsSync(dir)).toBe(false)
+  })
+
+  it('self-heals a stale repo dir without .git', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'prr-cache-'))
+    const cache = new RepoCache(root)
+    const repoPath = join(root, 'ws', 'fixture')
+    mkdirSync(repoPath, { recursive: true })
+    writeFileSync(join(repoPath, 'stale.txt'), 'junk')
+    const dir = await cache.ensureCheckout(pr, {
+      cloneUrl: origin,
+      sourceBranch: 'feat/x',
+      commit,
+    })
+    expect(existsSync(join(dir, '.git'))).toBe(true)
+    expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('feature\n')
+    expect(existsSync(join(dir, 'stale.txt'))).toBe(false)
   })
 
   it('surfaces git stderr on failure', async () => {
