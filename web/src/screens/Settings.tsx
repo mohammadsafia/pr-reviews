@@ -5,15 +5,26 @@ import type { Config } from '../types.js'
 export function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    getConfig().then(setCfg)
+    getConfig()
+      .then(setCfg)
+      .catch((e) => setError(e?.message ?? 'Failed to load settings'))
   }, [])
+  if (error) return <p className="error">{error}</p>
   if (!cfg) return <p>Loading…</p>
 
   const set = (patch: Partial<Config>) => {
     setCfg({ ...cfg, ...patch })
     setSaved(false)
+  }
+
+  const handleSave = () => {
+    setError('')
+    putConfig(cfg)
+      .then(() => setSaved(true))
+      .catch((e) => setError(e?.message ?? 'Failed to save'))
   }
 
   return (
@@ -55,9 +66,7 @@ export function Settings() {
         Clone cache location
         <input value={cfg.cacheDir} onChange={(e) => set({ cacheDir: e.target.value })} />
       </label>
-      <button
-        onClick={() => putConfig(cfg).then(() => setSaved(true))}
-      >
+      <button onClick={handleSave}>
         Save
       </button>
       {saved && <p>✅ Saved.</p>}

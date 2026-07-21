@@ -21,27 +21,32 @@ export function RunView({ id }: { id: string }) {
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [confirming, setConfirming] = useState(false)
   const [posted, setPosted] = useState<number[] | null>(null)
+  const [loadError, setLoadError] = useState('')
   const feedRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
     let unsub = () => {}
-    getRun(id).then((r) => {
-      if (cancelled) return
-      setRun(r)
-      setLive(r.transcript)
-      if (r.status === 'running' || r.status === 'queued') {
-        unsub = subscribeRun(
-          id,
-          (e) => {
-            if (!cancelled) setLive((prev) => [...prev, e])
-          },
-          () => {
-            if (!cancelled) getRun(id).then((r2) => !cancelled && setRun(r2))
-          },
-        )
-      }
-    })
+    getRun(id)
+      .then((r) => {
+        if (cancelled) return
+        setRun(r)
+        setLive(r.transcript)
+        if (r.status === 'running' || r.status === 'queued') {
+          unsub = subscribeRun(
+            id,
+            (e) => {
+              if (!cancelled) setLive((prev) => [...prev, e])
+            },
+            () => {
+              if (!cancelled) getRun(id).then((r2) => !cancelled && setRun(r2))
+            },
+          )
+        }
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError(e?.message ?? 'Failed to load run')
+      })
     return () => {
       cancelled = true
       unsub()
@@ -52,6 +57,7 @@ export function RunView({ id }: { id: string }) {
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight })
   }, [live])
 
+  if (loadError) return <p className="error">Failed to load run: {loadError}</p>
   if (!run) return <p>Loading…</p>
   const active = run.status === 'running' || run.status === 'queued'
 
