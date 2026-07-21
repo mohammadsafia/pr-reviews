@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '../src/config.js'
@@ -24,6 +24,17 @@ describe('config', () => {
     const loaded = loadConfig(path)
     expect(loaded.bitbucketEmail).toBe('fe@appswave.io')
     expect(loaded.skillDirs).toEqual(['/tmp/skills'])
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+
+  it('enforces 0600 permissions when saving over existing file with loose permissions', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+    const path = join(dir, 'config.json')
+    writeFileSync(path, '{}')
+    chmodSync(path, 0o644)
+    const cfg = loadConfig(path)
+    cfg.bitbucketToken = 'secret'
+    saveConfig(cfg, path)
     expect(statSync(path).mode & 0o777).toBe(0o600)
   })
 

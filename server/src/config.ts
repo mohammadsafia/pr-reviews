@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
@@ -37,4 +37,5 @@ export function loadConfig(path: string = DEFAULT_CONFIG_PATH): Config {
 export function saveConfig(cfg: Config, path: string = DEFAULT_CONFIG_PATH): void {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, JSON.stringify(cfg, null, 2), { mode: 0o600 })
+  chmodSync(path, 0o600)
 }
