@@ -1,0 +1,41 @@
+import { execFile } from 'node:child_process'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
+import type { PrRef } from '../types.js'
+
+const execFileAsync = promisify(execFile)
+
+async function git(cwd: string | undefined, label: string, args: string[]): Promise<void> {
+  try {
+    await execFileAsync('git', args, { cwd })
+  } catch (err: any) {
+    throw new Error(`git ${label} failed: ${err.stderr ?? err.message}`)
+  }
+}
+
+export class RepoCache {
+  constructor(private root: string) {}
+
+  repoDir(pr: PrRef): string {
+    return join(this.root, pr.workspace, pr.repo)
+  }
+
+  async ensureCheckout(
+    pr: PrRef,
+    opts: { cloneUrl: string; sourceBranch: string; commit: string },
+  ): Promise<string> {
+    const dir = this.repoDir(pr)
+    if (!existsSync(join(dir, '.git'))) {
+      mkdirSync(join(this.root, pr.workspace), { recursive: true })
+      await git(undefined, 'clone', ['clone', '--depth', '50', opts.cloneUrl, dir])
+    }
+    await git(dir, 'fetch', ['fetch', '--depth', '50', 'origin', opts.sourceBranch])
+    await git(dir, 'checkout', ['checkout', '--detach', '-f', opts.commit])
+    return dir
+  }
+
+  clear(pr: PrRef): void {
+    rmSync(this.repoDir(pr), { recursive: true, force: true })
+  }
+}
