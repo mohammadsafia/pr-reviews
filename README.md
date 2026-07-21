@@ -24,7 +24,7 @@ A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claud
 
 3. Open http://127.0.0.1:5175 in your browser
 
-4. **Configure Settings first**: Enter your Bitbucket email, API token, and Claude API credentials
+4. **Configure Settings first**: enter your Bitbucket email and API token (Claude authentication comes from your Claude Code login or ANTHROPIC_API_KEY environment variable).
 
 5. Paste a Bitbucket Cloud PR URL on the Home page, select review skills, and Run Review
 
@@ -46,7 +46,7 @@ cd server && npm run dev
 cd web && npm run dev
 ```
 
-The web dev server proxies API calls to http://localhost:3000 (the server). For production, `npm start` at the repo root builds the web bundle and serves it from the server on port 5175.
+The web dev server proxies API calls to http://127.0.0.1:5175 (the server). For production, `npm start` at the repo root builds the web bundle and serves it from the server on port 5175.
 
 ## Documentation
 
