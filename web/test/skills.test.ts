@@ -34,6 +34,22 @@ describe('inferCategory', () => {
   it('falls back to "other" when there is no prefix separator', () => {
     expect(inferCategory(skill({ name: 'skillname' }))).toBe('other')
   })
+
+  it('strips a namespace prefix before inferring "audit"', () => {
+    expect(inferCategory(skill({ name: 'forge:audit-a11y' }))).toBe('audit')
+  })
+
+  it('strips a namespace prefix before inferring "create"', () => {
+    expect(inferCategory(skill({ name: 'forge:create-form' }))).toBe('create')
+  })
+
+  it('falls back to "other" for a namespaced name with no recognized prefix', () => {
+    expect(inferCategory(skill({ name: 'forge:changelog' }))).toBe('other')
+  })
+
+  it('still infers "audit" for a plain (non-namespaced) name', () => {
+    expect(inferCategory(skill({ name: 'audit-z' }))).toBe('audit')
+  })
 })
 
 describe('filterSkills', () => {

@@ -4,7 +4,8 @@ const PREFIX_CATEGORIES = new Set(['create', 'audit', 'review', 'debug'])
 
 export function inferCategory(skill: SkillInfo): string {
   if (skill.category) return skill.category
-  const prefix = skill.name.split('-')[0]
+  const unnamespaced = skill.name.slice(skill.name.lastIndexOf(':') + 1)
+  const prefix = unnamespaced.split('-')[0]
   return PREFIX_CATEGORIES.has(prefix) ? prefix : 'other'
 }
 
