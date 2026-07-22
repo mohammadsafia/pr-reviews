@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Search } from 'lucide-react'
 
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -10,8 +10,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { StatusBadge } from '@/components/StatusBadge'
+import { cn } from '@/lib/utils'
 
 import { createRun, getSkills, listRuns } from '../api.js'
+import { filterSkills, inferCategory } from '../lib/skills.js'
 import type { RunRecord, SkillInfo } from '../types.js'
 
 export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[]> {
@@ -52,6 +54,8 @@ export function NewReview() {
   const [error, setError] = useState('')
   const [oversized, setOversized] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState('all')
 
   useEffect(() => {
     getSkills().then(setSkills).catch((e) => setError(e.message))
@@ -64,6 +68,33 @@ export function NewReview() {
     setSelected(next)
     localStorage.setItem(LAST_SKILLS_KEY, JSON.stringify([...next]))
   }
+
+  function persistSelection(next: Set<string>) {
+    setSelected(next)
+    localStorage.setItem(LAST_SKILLS_KEY, JSON.stringify([...next]))
+  }
+
+  function selectAll(visible: SkillInfo[]) {
+    const next = new Set(selected)
+    for (const s of visible) next.add(s.name)
+    persistSelection(next)
+  }
+
+  function deselectAll(visible: SkillInfo[]) {
+    const next = new Set(selected)
+    for (const s of visible) next.delete(s.name)
+    persistSelection(next)
+  }
+
+  const categories = useMemo(
+    () => [...new Set(skills.map(inferCategory))].sort(),
+    [skills],
+  )
+  const visibleSkills = useMemo(
+    () => filterSkills(skills, query, category),
+    [skills, query, category],
+  )
+  const visibleGroups = useMemo(() => groupSkillsBySource(visibleSkills), [visibleSkills])
 
   async function submit(force = false) {
     setBusy(true)
@@ -105,6 +136,9 @@ export function NewReview() {
             {busy ? 'Starting…' : 'Run review'}
           </Button>
         </div>
+        <p className="text-muted-foreground text-xs">
+          {selected.size} of {skills.length} skills selected
+        </p>
         {error && <p className="text-destructive text-sm">{error}</p>}
         {oversized !== null && (
           <Alert variant="warning">
@@ -128,31 +162,112 @@ export function NewReview() {
 
       <div className="flex flex-col gap-4">
         <h2 className="text-sm font-medium">Skills to apply</h2>
-        <div className="flex flex-col gap-4">
-          {[...groupSkillsBySource(skills)].map(([source, group]) => (
-            <Card key={source} shadow="sm">
-              <Card.Header className="pb-2">
-                <Card.Title className="text-base">{sourceLabel(source)}</Card.Title>
-                <Card.Description className="truncate">{source}</Card.Description>
-              </Card.Header>
-              <Card.Content className="grid grid-cols-1 gap-x-6 gap-y-3 pt-0 sm:grid-cols-2">
-                {group.map((s) => (
-                  <label key={s.dir} className="flex min-w-0 items-start gap-2" title={s.description}>
-                    <Checkbox
-                      checked={selected.has(s.name)}
-                      onCheckedChange={() => toggle(s.name)}
-                      className="mt-0.5 shrink-0"
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="min-w-0 truncate text-sm font-medium">{s.name}</span>
-                      <span className="text-muted-foreground min-w-0 truncate text-xs">{s.description}</span>
-                    </span>
-                  </label>
-                ))}
-              </Card.Content>
-            </Card>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative sm:max-w-xs sm:flex-1">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+            <Input
+              className="pl-9"
+              placeholder="Search skills…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={visibleSkills.length === 0}
+              onClick={() => selectAll(visibleSkills)}
+            >
+              Select all
+            </Button>
+            <Button
+              type="button"
+              variant="outline-muted"
+              size="sm"
+              disabled={visibleSkills.length === 0}
+              onClick={() => deselectAll(visibleSkills)}
+            >
+              Deselect all
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setCategory('all')}
+            className={cn(
+              'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+              category === 'all'
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-muted-200 text-muted-foreground hover:border-primary hover:text-primary',
+            )}
+          >
+            All
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setCategory(cat)}
+              className={cn(
+                'rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors',
+                category === cat
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-muted-200 text-muted-foreground hover:border-primary hover:text-primary',
+              )}
+            >
+              {cat}
+            </button>
           ))}
         </div>
+
+        {skills.length > 0 && visibleSkills.length === 0 ? (
+          <p className="text-muted-foreground text-sm">No skills match your search.</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {[...visibleGroups].map(([source, group]) => {
+              const allVisibleSelected = group.every((s) => selected.has(s.name))
+              return (
+                <Card key={source} shadow="sm">
+                  <Card.Header className="flex flex-row items-start justify-between gap-3 pb-2">
+                    <div>
+                      <Card.Title className="text-base">{sourceLabel(source)}</Card.Title>
+                      <Card.Description className="truncate">{source}</Card.Description>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost-muted"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => (allVisibleSelected ? deselectAll(group) : selectAll(group))}
+                    >
+                      {allVisibleSelected ? 'Deselect all' : 'Select all'}
+                    </Button>
+                  </Card.Header>
+                  <Card.Content className="grid grid-cols-1 gap-x-6 gap-y-3 pt-0 sm:grid-cols-2">
+                    {group.map((s) => (
+                      <label key={s.dir} className="flex min-w-0 items-start gap-2" title={s.description}>
+                        <Checkbox
+                          checked={selected.has(s.name)}
+                          onCheckedChange={() => toggle(s.name)}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col">
+                          <span className="min-w-0 truncate text-sm font-medium">{s.name}</span>
+                          <span className="text-muted-foreground min-w-0 truncate text-xs">{s.description}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </Card.Content>
+                </Card>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">

@@ -45,6 +45,7 @@ export interface SkillInfo {
   description: string
   dir: string
   source: string
+  category?: string
 }
 
 export interface Config {

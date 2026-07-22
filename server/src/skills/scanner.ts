@@ -28,6 +28,7 @@ export function scanSkillDirs(dirs: string[]): SkillInfo[] {
         description: fm.description ?? '',
         dir: skillDir,
         source: root,
+        ...(fm.category ? { category: fm.category } : {}),
       })
     }
   }
