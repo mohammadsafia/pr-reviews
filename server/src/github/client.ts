@@ -30,6 +30,7 @@ export class GitHubClient implements PrProviderClient {
       headers: {
         Authorization: `Bearer ${this.token}`,
         Accept: accept,
+        'Content-Type': 'application/json',
         ...(init.headers ?? {}),
       },
     })

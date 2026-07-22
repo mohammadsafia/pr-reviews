@@ -71,6 +71,7 @@ describe('GitHubClient', () => {
       line: 12,
       side: 'RIGHT',
     })
+    expect(postCalls[0].init.headers['Content-Type']).toBe('application/json')
   })
 
   it('throws PrAuthError on 401', async () => {

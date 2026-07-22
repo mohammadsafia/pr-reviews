@@ -264,19 +264,22 @@ function ClearCache() {
     <div className="flex flex-col gap-2 border-t border-muted-200 pt-4">
       <p className="text-sm font-medium">Clear a cached repo</p>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <select
-          aria-label="Provider"
-          value={provider}
-          onChange={(e) => {
-            setProvider(e.target.value as 'bitbucket' | 'github')
-            setCleared(false)
-            setClearError('')
-          }}
-          className="border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring shrink-0 rounded-md border p-3 text-sm shadow-xs outline-none sm:w-40"
-        >
-          <option value="bitbucket">Bitbucket</option>
-          <option value="github">GitHub</option>
-        </select>
+        <div className="flex flex-col gap-2 sm:w-40 sm:shrink-0">
+          <Label htmlFor="clear-cache-provider">Provider</Label>
+          <select
+            id="clear-cache-provider"
+            value={provider}
+            onChange={(e) => {
+              setProvider(e.target.value as 'bitbucket' | 'github')
+              setCleared(false)
+              setClearError('')
+            }}
+            className="border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring w-full rounded-md border p-3 text-sm shadow-xs outline-none"
+          >
+            <option value="bitbucket">Bitbucket</option>
+            <option value="github">GitHub</option>
+          </select>
+        </div>
         <Input
           placeholder="workspace"
           value={ws}

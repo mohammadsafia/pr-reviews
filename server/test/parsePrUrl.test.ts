@@ -20,6 +20,15 @@ describe('parsePrUrl', () => {
     })
   })
 
+  it('tolerates a trailing query string for Bitbucket', () => {
+    expect(parsePrUrl('https://bitbucket.org/appswave/rsk/pull-requests/42?something')).toEqual({
+      provider: 'bitbucket',
+      workspace: 'appswave',
+      repo: 'rsk',
+      id: 42,
+    })
+  })
+
   it('parses a standard GitHub PR URL', () => {
     expect(parsePrUrl('https://github.com/appswave/rsk/pull/42')).toEqual({
       provider: 'github',
@@ -34,6 +43,15 @@ describe('parsePrUrl', () => {
       provider: 'github',
       workspace: 'ws',
       repo: 'my-repo',
+      id: 7,
+    })
+  })
+
+  it('tolerates a trailing query string for GitHub', () => {
+    expect(parsePrUrl('https://github.com/appswave/rsk/pull/7?diff=split')).toEqual({
+      provider: 'github',
+      workspace: 'appswave',
+      repo: 'rsk',
       id: 7,
     })
   })
