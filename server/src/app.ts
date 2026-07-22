@@ -16,6 +16,13 @@ import type { PrMeta, PrRef, RunEvent, RunRecord } from './types.js'
 
 const MASK = '***'
 
+const SAFE_CACHE_SEGMENT = /^[A-Za-z0-9._-]+$/
+
+/** Path segments accepted for cache workspace/repo params: no separators, no bare "."/"..". */
+export function isSafeCacheSegment(s: string): boolean {
+  return SAFE_CACHE_SEGMENT.test(s) && s !== '.' && s !== '..'
+}
+
 export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } = {}): FastifyInstance {
   let cfgChain: Promise<unknown> = Promise.resolve()
   function withConfigLock<T>(fn: () => T | Promise<T>): Promise<T> {
@@ -247,9 +254,16 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     return { posted }
   })
 
-  app.delete('/api/cache/:workspace/:repo', async (req) => {
+  app.delete('/api/cache/:workspace/:repo', async (req, reply) => {
     const { workspace, repo } = req.params as { workspace: string; repo: string }
-    new RepoCache(cfg().cacheDir).clear({ workspace, repo, id: 0 })
+    if (!isSafeCacheSegment(workspace) || !isSafeCacheSegment(repo)) {
+      return reply.code(400).send({ error: 'Invalid workspace or repo name' })
+    }
+    try {
+      new RepoCache(cfg().cacheDir).clear({ workspace, repo, id: 0 })
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message })
+    }
     return { ok: true }
   })
 

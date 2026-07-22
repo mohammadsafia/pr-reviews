@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import type { PrRef } from '../types.js'
 
@@ -37,6 +37,12 @@ export class RepoCache {
   }
 
   clear(pr: PrRef): void {
-    rmSync(this.repoDir(pr), { recursive: true, force: true })
+    const root = resolve(this.root)
+    const dir = resolve(this.repoDir(pr))
+    const rel = relative(root, dir)
+    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+      throw new Error(`Refusing to clear a path outside the cache root: ${dir}`)
+    }
+    rmSync(dir, { recursive: true, force: true })
   }
 }

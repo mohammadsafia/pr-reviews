@@ -12,18 +12,28 @@ export type AgentQuery = (
   opts: { cwd: string; model: string },
 ) => AsyncIterable<AgentMessage>
 
+// NOTE: In the installed SDK (@anthropic-ai/claude-agent-sdk@0.3.216), `allowedTools` is
+// only an auto-approve list — it does NOT restrict which tools are available. The actual
+// allow-list is the `tools` option (`tools?: string[] | { type: 'preset'; preset: 'claude_code' }`,
+// see node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts around line 1404). `disallowedTools`
+// removes tools even if otherwise allowed (line 1368) and is kept here as defense in depth.
+export function buildQueryOptions(cwd: string, model: string) {
+  return {
+    cwd,
+    model,
+    tools: ['Read', 'Grep', 'Glob'],
+    disallowedTools: ['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch'],
+    permissionMode: 'bypassPermissions' as const,
+    // Required by the installed SDK whenever permissionMode is 'bypassPermissions' —
+    // without it, query() throws synchronously before yielding anything.
+    allowDangerouslySkipPermissions: true,
+  }
+}
+
 export const sdkQuery: AgentQuery = async function* (prompt, opts) {
   const q = query({
     prompt,
-    options: {
-      cwd: opts.cwd,
-      model: opts.model,
-      allowedTools: ['Read', 'Grep', 'Glob'],
-      permissionMode: 'bypassPermissions',
-      // Required by the installed SDK whenever permissionMode is 'bypassPermissions' —
-      // without it, query() throws synchronously before yielding anything.
-      allowDangerouslySkipPermissions: true,
-    },
+    options: buildQueryOptions(opts.cwd, opts.model),
   })
   for await (const msg of q) {
     if (msg.type === 'assistant') {

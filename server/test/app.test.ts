@@ -163,4 +163,45 @@ describe('app', () => {
     expect(final.skillDirs).not.toContain(dirA)
     expect(final.skillDirs).toContain(dirB)
   })
+
+  it('DELETE /api/cache/:workspace/:repo rejects path traversal and deletes nothing outside the cache', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const c = loadConfig(path)
+    const cacheParent = dirname(c.cacheDir)
+    const sentinelDir = join(cacheParent, 'etc')
+    mkdirSync(sentinelDir, { recursive: true })
+    writeFileSync(join(sentinelDir, 'passwd'), 'secret')
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/cache/..%2Fetc/passwd' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBeTruthy()
+    expect(existsSync(join(sentinelDir, 'passwd'))).toBe(true)
+  })
+
+  it('DELETE /api/cache/:workspace/:repo rejects "." and ".." segments explicitly', async () => {
+    // Fastify's router normalizes bare "." / ".." path segments before dispatch (they never
+    // reach our handler as literal params — requests for them 404 at the router). We assert
+    // the safe-segment validator itself rejects "." and ".." directly as defense in depth,
+    // since the router's behavior is an implementation detail we shouldn't rely on alone.
+    const { isSafeCacheSegment } = await import('../src/app.js')
+    expect(isSafeCacheSegment('.')).toBe(false)
+    expect(isSafeCacheSegment('..')).toBe(false)
+    expect(isSafeCacheSegment('ws')).toBe(true)
+    expect(isSafeCacheSegment('../etc')).toBe(false)
+  })
+
+  it('DELETE /api/cache/:workspace/:repo succeeds for a normal workspace/repo', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const c = loadConfig(path)
+    const repoDir = join(c.cacheDir, 'ws', 'repo')
+    mkdirSync(repoDir, { recursive: true })
+    writeFileSync(join(repoDir, 'file.txt'), 'x')
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/cache/ws/repo' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true })
+    expect(existsSync(repoDir)).toBe(false)
+  })
 })

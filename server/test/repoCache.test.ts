@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { RepoCache } from '../src/repos/cache.js'
 
 let origin: string
@@ -79,5 +79,17 @@ describe('RepoCache', () => {
     await expect(
       cache.ensureCheckout(pr, { cloneUrl: '/nonexistent/repo', sourceBranch: 'x', commit: 'y' }),
     ).rejects.toThrow(/git clone failed/)
+  })
+
+  it('clear refuses to delete a path that escapes the cache root (defense in depth)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'prr-cache-'))
+    const cache = new RepoCache(root)
+    const sentinelDir = join(dirname(root), 'sentinel-outside-cache')
+    mkdirSync(sentinelDir, { recursive: true })
+    writeFileSync(join(sentinelDir, 'keep.txt'), 'keep me')
+    expect(() => cache.clear({ workspace: '..', repo: 'sentinel-outside-cache', id: 0 })).toThrow(
+      /outside/i,
+    )
+    expect(existsSync(join(sentinelDir, 'keep.txt'))).toBe(true)
   })
 })

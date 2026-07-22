@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runReview } from '../src/review/runner.js'
+import { runReview, buildQueryOptions } from '../src/review/runner.js'
 import type { RunEvent } from '../src/types.js'
 
 const meta = {
@@ -56,5 +56,33 @@ describe('runReview', () => {
       yield { type: 'result' as const, ok: false, text: 'agent crashed' }
     }
     await expect(runReview(input, () => {}, agent)).rejects.toThrow(/agent crashed/)
+  })
+})
+
+describe('buildQueryOptions', () => {
+  it('restricts the agent to read-only tools via the real allow-list option', () => {
+    const opts = buildQueryOptions('/tmp/cwd', 'claude-sonnet-5')
+    expect(opts.tools).toEqual(['Read', 'Grep', 'Glob'])
+  })
+
+  it('also sets disallowedTools as defense in depth against dangerous tools', () => {
+    const opts = buildQueryOptions('/tmp/cwd', 'claude-sonnet-5')
+    expect(opts.disallowedTools).toEqual(
+      expect.arrayContaining(['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch']),
+    )
+  })
+
+  it('does not rely on allowedTools alone (that option is auto-approve, not a restriction)', () => {
+    const opts = buildQueryOptions('/tmp/cwd', 'claude-sonnet-5')
+    // allowedTools must not list any dangerous tool as auto-approved
+    expect(opts.allowedTools ?? []).not.toEqual(
+      expect.arrayContaining(['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch']),
+    )
+  })
+
+  it('passes through cwd and model', () => {
+    const opts = buildQueryOptions('/tmp/cwd', 'claude-opus-4-8')
+    expect(opts.cwd).toBe('/tmp/cwd')
+    expect(opts.model).toBe('claude-opus-4-8')
   })
 })
