@@ -6,11 +6,20 @@ import type { PrRef } from '../types.js'
 
 const execFileAsync = promisify(execFile)
 
+/** Strips embedded `user:pass@` credentials from any URL in a git error string before it
+ * reaches run transcripts or thrown errors. Modern git already redacts credentials in most
+ * "unable to access" fatal messages, but this is defense in depth against transports/error
+ * paths that don't. */
+export function redactCredentials(s: string): string {
+  return s.replace(/:\/\/[^\s/@]+:[^\s/@]+@/g, '://***:***@')
+}
+
 async function git(cwd: string | undefined, label: string, args: string[]): Promise<void> {
   try {
     await execFileAsync('git', args, { cwd })
   } catch (err: any) {
-    throw new Error(`git ${label} failed: ${err.stderr ?? err.message}`)
+    const raw = String(err.stderr ?? err.message)
+    throw new Error(`git ${label} failed: ${redactCredentials(raw)}`)
   }
 }
 

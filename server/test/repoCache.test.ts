@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { RepoCache } from '../src/repos/cache.js'
+import { RepoCache, redactCredentials } from '../src/repos/cache.js'
 
 let origin: string
 let commit: string
@@ -79,6 +79,22 @@ describe('RepoCache', () => {
     await expect(
       cache.ensureCheckout(pr, { cloneUrl: '/nonexistent/repo', sourceBranch: 'x', commit: 'y' }),
     ).rejects.toThrow(/git clone failed/)
+  })
+
+  it('redacts embedded user:pass@ credentials from a URL in a git error message', () => {
+    const msg =
+      "fatal: unable to access 'https://user%40x.io:secrettoken@bitbucket.org/ws/repo.git/': " +
+      'Could not resolve host'
+    const redacted = redactCredentials(msg)
+    expect(redacted).not.toContain('secrettoken')
+    expect(redacted).toBe(
+      "fatal: unable to access 'https://***:***@bitbucket.org/ws/repo.git/': Could not resolve host",
+    )
+  })
+
+  it('leaves git error messages with no embedded credentials untouched', () => {
+    const msg = "fatal: repository 'https://bitbucket.org/ws/repo.git/' not found"
+    expect(redactCredentials(msg)).toBe(msg)
   })
 
   it('clear refuses to delete a path that escapes the cache root (defense in depth)', async () => {

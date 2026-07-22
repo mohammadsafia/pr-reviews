@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RunStore } from '../src/store/runs.js'
@@ -41,5 +41,32 @@ describe('RunStore', () => {
   it('get returns undefined for unknown id', () => {
     const store = new RunStore(mkdtempSync(join(tmpdir(), 'prr-runs-')))
     expect(store.get('nope')).toBeUndefined()
+  })
+
+  it('list() skips a corrupt .json file instead of throwing, and still returns the valid runs', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-runs-'))
+    const store = new RunStore(dir)
+    const a = store.create({ ...base, prTitle: 'A' })
+    writeFileSync(join(dir, 'garbage.json'), '{not valid json')
+    const list = store.list()
+    expect(list.map((r) => r.id)).toEqual([a.id])
+  })
+
+  it('get() returns undefined (not a throw) for a corrupt .json file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-runs-'))
+    writeFileSync(join(dir, 'corrupt-id.json'), '{not valid json')
+    const store = new RunStore(dir)
+    expect(store.get('corrupt-id')).toBeUndefined()
+  })
+
+  it('save() is atomic: it never leaves a stray .tmp file behind and the target always has valid JSON', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-runs-'))
+    const store = new RunStore(dir)
+    const run = store.create({ ...base, prTitle: 'A' })
+    run.status = 'completed'
+    store.save(run)
+    const files = readdirSync(dir)
+    expect(files.some((f) => f.endsWith('.tmp'))).toBe(false)
+    expect(store.get(run.id)?.status).toBe('completed')
   })
 })

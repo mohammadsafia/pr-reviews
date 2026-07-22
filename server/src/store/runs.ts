@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RunRecord } from '../types.js'
+
+/** Parses a run record file, returning undefined (instead of throwing) if it's corrupt —
+ * one bad file should never take down get()/list() for every other run. */
+function readRun(path: string): RunRecord | undefined {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as RunRecord
+  } catch {
+    return undefined
+  }
+}
 
 export class RunStore {
   constructor(private dir: string) {
@@ -28,19 +38,23 @@ export class RunStore {
   }
 
   save(run: RunRecord): void {
-    writeFileSync(this.path(run.id), JSON.stringify(run, null, 2))
+    const target = this.path(run.id)
+    const tmp = `${target}.tmp`
+    writeFileSync(tmp, JSON.stringify(run, null, 2))
+    renameSync(tmp, target)
   }
 
   get(id: string): RunRecord | undefined {
     const p = this.path(id)
     if (!existsSync(p)) return undefined
-    return JSON.parse(readFileSync(p, 'utf8')) as RunRecord
+    return readRun(p)
   }
 
   list(): RunRecord[] {
     return readdirSync(this.dir)
-      .filter((f) => f.endsWith('.json'))
-      .map((f) => JSON.parse(readFileSync(join(this.dir, f), 'utf8')) as RunRecord)
+      .filter((f) => f.endsWith('.json') && !f.endsWith('.json.tmp'))
+      .map((f) => readRun(join(this.dir, f)))
+      .filter((r): r is RunRecord => r !== undefined)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map((r) => ({ ...r, transcript: [] }))
   }

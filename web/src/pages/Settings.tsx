@@ -188,6 +188,20 @@ function ClearCache() {
   const [ws, setWs] = useState('')
   const [repo, setRepo] = useState('')
   const [cleared, setCleared] = useState(false)
+  const [clearError, setClearError] = useState('')
+
+  const handleClear = () => {
+    setClearError('')
+    setCleared(false)
+    clearRepoCache(ws, repo).then((r) => {
+      if (r.ok) {
+        setCleared(true)
+      } else {
+        setClearError(r.error ?? 'Failed to clear cache')
+      }
+    })
+  }
+
   return (
     <div className="flex flex-col gap-2 border-t border-muted-200 pt-4">
       <p className="text-sm font-medium">Clear a cached repo</p>
@@ -198,6 +212,7 @@ function ClearCache() {
           onChange={(e) => {
             setWs(e.target.value)
             setCleared(false)
+            setClearError('')
           }}
         />
         <Input
@@ -206,13 +221,10 @@ function ClearCache() {
           onChange={(e) => {
             setRepo(e.target.value)
             setCleared(false)
+            setClearError('')
           }}
         />
-        <Button
-          variant="outline-destructive"
-          disabled={!ws || !repo}
-          onClick={() => clearRepoCache(ws, repo).then(() => setCleared(true))}
-        >
+        <Button variant="outline-destructive" disabled={!ws || !repo} onClick={handleClear}>
           Clear cache
         </Button>
       </div>
@@ -221,6 +233,7 @@ function ClearCache() {
           Cache cleared for {ws}/{repo}.
         </p>
       )}
+      {clearError && <p className="text-destructive text-xs">{clearError}</p>}
     </div>
   )
 }
