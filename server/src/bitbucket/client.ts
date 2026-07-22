@@ -65,7 +65,8 @@ export class BitbucketClient {
     return ((await res.json()) as any).id as number
   }
 
-  cloneUrl(pr: PrRef): string {
+  cloneUrl(pr: PrRef, protocol: 'ssh' | 'https' = 'ssh'): string {
+    if (protocol === 'ssh') return `git@bitbucket.org:${pr.workspace}/${pr.repo}.git`
     return `https://${encodeURIComponent(this.email)}:${encodeURIComponent(this.token)}@bitbucket.org/${pr.workspace}/${pr.repo}.git`
   }
 }

@@ -88,6 +88,28 @@ export function Settings() {
             />
             <p className="text-muted-foreground text-xs">*** means your saved token is kept</p>
           </div>
+          <div className="flex flex-col gap-2">
+            <Label>Clone protocol</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={cfg.cloneProtocol === 'ssh' ? 'default' : 'outline-muted'}
+                onClick={() => set({ cloneProtocol: 'ssh' })}
+              >
+                SSH (recommended)
+              </Button>
+              <Button
+                type="button"
+                variant={cfg.cloneProtocol === 'https' ? 'default' : 'outline-muted'}
+                onClick={() => set({ cloneProtocol: 'https' })}
+              >
+                HTTPS (uses API token)
+              </Button>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              SSH requires a key configured for bitbucket.org on this machine.
+            </p>
+          </div>
         </Card.Content>
       </Card>
 

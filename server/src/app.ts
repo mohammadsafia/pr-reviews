@@ -105,7 +105,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
       const client = new BitbucketClient(c.bitbucketEmail, c.bitbucketToken)
       const cache = new RepoCache(c.cacheDir)
       const cwd = await cache.ensureCheckout(ctx.pr, {
-        cloneUrl: client.cloneUrl(ctx.pr),
+        cloneUrl: client.cloneUrl(ctx.pr, c.cloneProtocol),
         sourceBranch: ctx.meta.sourceBranch,
         commit: ctx.meta.sourceCommit,
       })

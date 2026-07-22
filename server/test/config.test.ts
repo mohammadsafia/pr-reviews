@@ -11,6 +11,7 @@ describe('config', () => {
     expect(cfg.diffWarnLines).toBe(8000)
     expect(cfg.bitbucketToken).toBe('')
     expect(cfg.cacheDir.endsWith('/.pr-reviewer/repos')).toBe(true)
+    expect(cfg.cloneProtocol).toBe('ssh')
   })
 
   it('round-trips save and load, with 0600 permissions', () => {

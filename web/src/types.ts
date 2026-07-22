@@ -50,6 +50,7 @@ export interface SkillInfo {
 export interface Config {
   bitbucketEmail: string
   bitbucketToken: string
+  cloneProtocol: 'ssh' | 'https'
   skillDirs: string[]
   model: string
   cacheDir: string

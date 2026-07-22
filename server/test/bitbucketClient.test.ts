@@ -55,8 +55,13 @@ describe('BitbucketClient', () => {
     await expect(c.getDiff(pr)).rejects.toBeInstanceOf(BitbucketAuthError)
   })
 
-  it('builds an authenticated clone URL', () => {
+  it('builds an ssh clone URL by default', () => {
     const c = new BitbucketClient('e@x.io', 't0k', fakeFetch(200, {}))
-    expect(c.cloneUrl(pr)).toBe('https://e%40x.io:t0k@bitbucket.org/ws/r.git')
+    expect(c.cloneUrl(pr)).toBe('git@bitbucket.org:ws/r.git')
+  })
+
+  it('builds an authenticated https clone URL when requested', () => {
+    const c = new BitbucketClient('e@x.io', 't0k', fakeFetch(200, {}))
+    expect(c.cloneUrl(pr, 'https')).toBe('https://e%40x.io:t0k@bitbucket.org/ws/r.git')
   })
 })

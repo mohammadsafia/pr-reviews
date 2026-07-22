@@ -8,6 +8,7 @@ const home = homedir()
 const ConfigSchema = z.object({
   bitbucketEmail: z.string().default(''),
   bitbucketToken: z.string().default(''),
+  cloneProtocol: z.enum(['ssh', 'https']).default('ssh'),
   skillDirs: z
     .array(z.string())
     .default([join(home, 'Desktop/projects/forge-skills/skills'), join(home, '.claude/skills')]),

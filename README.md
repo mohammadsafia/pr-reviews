@@ -8,6 +8,7 @@ A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claud
 - **git** (for repository cloning and operations)
 - **Claude Code login** OR `ANTHROPIC_API_KEY` environment variable (for Claude API access)
 - **Bitbucket API token** with scopes: `pullrequest:read`, `pullrequest:write`, `repository:read`
+- **SSH key configured for bitbucket.org** (default clone method; HTTPS with API token selectable in Settings)
 
 ## Quick Start
 
