@@ -17,6 +17,16 @@ import type { PrMeta, PrRef, RunEvent, RunRecord } from './types.js'
 const MASK = '***'
 
 export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } = {}): FastifyInstance {
+  let cfgChain: Promise<unknown> = Promise.resolve()
+  function withConfigLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    const run = cfgChain.then(fn)
+    cfgChain = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   const configPath = deps.configPath ?? DEFAULT_CONFIG_PATH
   const agentQuery = deps.agentQuery ?? sdkQuery
   const app = Fastify()
@@ -34,10 +44,12 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
 
   app.put('/api/config', async (req) => {
     const incoming = req.body as Config
-    const current = cfg()
-    if (incoming.bitbucketToken === MASK) incoming.bitbucketToken = current.bitbucketToken
-    saveConfig(incoming, configPath)
-    return { ok: true }
+    return withConfigLock(() => {
+      const current = cfg()
+      if (incoming.bitbucketToken === MASK) incoming.bitbucketToken = current.bitbucketToken
+      saveConfig(incoming, configPath)
+      return { ok: true }
+    })
   })
 
   app.get('/api/skills', async () => scanSkillDirs(cfg().skillDirs))
@@ -51,22 +63,33 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
       const invalid = /^(Invalid GitHub repo|No skills found)/.test(err.message)
       return reply.code(invalid ? 400 : 502).send({ error: err.message })
     }
-    const c = cfg()
-    if (!c.skillDirs.includes(result.dir)) {
-      c.skillDirs.push(result.dir)
-      saveConfig(c, configPath)
-    }
+    await withConfigLock(() => {
+      const c = cfg()
+      if (!c.skillDirs.includes(result.dir)) {
+        c.skillDirs.push(result.dir)
+        saveConfig(c, configPath)
+      }
+    })
     return result
   })
 
   app.delete('/api/skill-sources', async (req) => {
     const { dir } = req.body as { dir: string }
-    const c = cfg()
-    c.skillDirs = c.skillDirs.filter((d) => d !== dir)
-    saveConfig(c, configPath)
+    await withConfigLock(() => {
+      const c = cfg()
+      c.skillDirs = c.skillDirs.filter((d) => d !== dir)
+      saveConfig(c, configPath)
+    })
     const cloneRoot = skillRepoCloneDir(dir, skillReposDir())
     if (cloneRoot) {
-      rmSync(cloneRoot, { recursive: true, force: true })
+      try {
+        rmSync(cloneRoot, { recursive: true, force: true })
+      } catch (err: any) {
+        return {
+          ok: true,
+          warning: `Removed from config but the clone directory could not be deleted: ${err.message}`,
+        }
+      }
     }
     return { ok: true }
   })

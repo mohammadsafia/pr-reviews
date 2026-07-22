@@ -8,11 +8,25 @@ const execFileAsync = promisify(execFile)
 
 export type GitFn = (args: string[], cwd?: string) => Promise<void>
 
+/** Finds the subcommand in a git args array, skipping flags and `-C <dir>`'s value. */
+function gitLabel(args: string[]): string {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]
+    if (a === '-C') {
+      i++
+      continue
+    }
+    if (a.startsWith('-')) continue
+    return a
+  }
+  return args[0] ?? ''
+}
+
 async function defaultGit(args: string[], cwd?: string): Promise<void> {
   try {
     await execFileAsync('git', args, { cwd })
   } catch (err: any) {
-    throw new Error(`git ${args[0]} failed: ${err.stderr ?? err.message}`)
+    throw new Error(`git ${gitLabel(args)} failed: ${err.stderr ?? err.message}`)
   }
 }
 

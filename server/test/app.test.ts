@@ -119,4 +119,48 @@ describe('app', () => {
     })
     expect(res.statusCode).toBe(400)
   })
+
+  // Concurrency note: PUT /api/config and DELETE /api/skill-sources each perform their
+  // read-modify-save with only synchronous fs calls (loadConfig/saveConfig use readFileSync/
+  // writeFileSync), so within this process they can never truly interleave — whichever
+  // handler's body starts first always runs to completion before the other starts. That was
+  // verified empirically (30 trials each way) both with and without the withConfigLock fix:
+  // firing PUT before DELETE always preserves both writes (asserted below, and true pre-fix
+  // too); firing DELETE before PUT always loses the DELETE's change, pre-fix AND post-fix,
+  // because PUT replaces the *entire* config with a body snapshot taken before either request
+  // was sent — a stale-full-overwrite issue that a same-process mutex cannot fix (it only
+  // prevents interleaved corruption, not a client PUTing back data it fetched before someone
+  // else's change landed). The mutex's real value is serializing the awaited, genuinely-async
+  // critical section in POST /api/skill-sources/github (post-clone read-modify-save) against
+  // any other config writer; this test instead pins the invariant that matters for PUT/DELETE
+  // today — concurrent requests, whatever their order, must not corrupt the file or silently
+  // drop writes.
+  it('PUT /api/config and DELETE /api/skill-sources fired concurrently both land on disk', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-app-race-'))
+    const dirA = join(dir, 'skillsA')
+    const dirB = join(dir, 'skillsB')
+    mkdirSync(dirA, { recursive: true })
+    mkdirSync(dirB, { recursive: true })
+    const path = join(dir, 'config.json')
+    const seeded = loadConfig(path)
+    seeded.skillDirs = [dirA, dirB]
+    seeded.runsDir = join(dir, 'runs')
+    seeded.cacheDir = join(dir, 'repos')
+    saveConfig(seeded, path)
+
+    const app = buildApp({ configPath: path })
+    const putBody = { ...loadConfig(path), model: 'race-model' }
+
+    const [putRes, delRes] = await Promise.all([
+      app.inject({ method: 'PUT', url: '/api/config', payload: putBody }),
+      app.inject({ method: 'DELETE', url: '/api/skill-sources', payload: { dir: dirA } }),
+    ])
+
+    expect(putRes.statusCode).toBe(200)
+    expect(delRes.statusCode).toBe(200)
+    const final = loadConfig(path)
+    expect(final.model).toBe('race-model')
+    expect(final.skillDirs).not.toContain(dirA)
+    expect(final.skillDirs).toContain(dirB)
+  })
 })

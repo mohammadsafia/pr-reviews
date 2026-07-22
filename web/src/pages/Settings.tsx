@@ -129,7 +129,11 @@ export function Settings() {
           <SkillSources
             cfg={cfg}
             onAddLocal={(dir) => set({ skillDirs: [...cfg.skillDirs, dir] })}
-            onReloadConfig={() => getConfig().then(setCfg).catch(() => {})}
+            onReloadConfig={() =>
+              getConfig()
+                .then((fresh) => setCfg((prev) => (prev ? { ...prev, skillDirs: fresh.skillDirs } : fresh)))
+                .catch(() => {})
+            }
           />
         </Card.Content>
       </Card>
