@@ -54,11 +54,12 @@ export const postComments = (id: string, findingIndexes: number[]) =>
   }).then((r) => json<PostCommentsResult>(r))
 
 export async function clearRepoCache(
+  provider: 'bitbucket' | 'github',
   workspace: string,
   repo: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(`/api/cache/${workspace}/${repo}`, { method: 'DELETE' })
+    const res = await fetch(`/api/cache/${provider}/${workspace}/${repo}`, { method: 'DELETE' })
     if (!res.ok) {
       let body: any = {}
       try {

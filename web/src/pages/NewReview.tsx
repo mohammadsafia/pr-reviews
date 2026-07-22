@@ -115,7 +115,7 @@ export function NewReview() {
       <div className="flex flex-col gap-2">
         <h1 className="font-family-display text-3xl">Review a pull request.</h1>
         <p className="text-muted-foreground text-sm">
-          Paste a Bitbucket PR link, pick the skills to run, and we'll take it from there.
+          Paste a Bitbucket or GitHub PR link, pick the skills to run, and we'll take it from there.
         </p>
       </div>
 
@@ -137,7 +137,7 @@ export function NewReview() {
           </Button>
         </div>
         <p className="text-muted-foreground text-xs">
-          {selected.size} of {skills.length} skills selected
+          Bitbucket or GitHub PR URL · {selected.size} of {skills.length} skills selected
         </p>
         {error && <p className="text-destructive text-sm">{error}</p>}
         {oversized !== null && (

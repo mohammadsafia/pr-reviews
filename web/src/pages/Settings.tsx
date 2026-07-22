@@ -130,6 +130,27 @@ export function Settings() {
 
       <Card shadow="sm">
         <Card.Header>
+          <Card.Title>GitHub</Card.Title>
+        </Card.Header>
+        <Card.Content className="flex flex-col gap-4 pt-0">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="gh-token">API token</Label>
+            <Input
+              id="gh-token"
+              type="password"
+              value={cfg.githubToken}
+              onChange={(e) => set({ githubToken: e.target.value })}
+              placeholder="*** means your saved token is kept"
+            />
+            <p className="text-muted-foreground text-xs">
+              Fine-grained PAT with pull-request read/write on the repos you review.
+            </p>
+          </div>
+        </Card.Content>
+      </Card>
+
+      <Card shadow="sm">
+        <Card.Header>
           <Card.Title>Skill sources</Card.Title>
         </Card.Header>
         <Card.Content className="pt-0">
@@ -221,6 +242,7 @@ export function Settings() {
 }
 
 function ClearCache() {
+  const [provider, setProvider] = useState<'bitbucket' | 'github'>('bitbucket')
   const [ws, setWs] = useState('')
   const [repo, setRepo] = useState('')
   const [cleared, setCleared] = useState(false)
@@ -229,7 +251,7 @@ function ClearCache() {
   const handleClear = () => {
     setClearError('')
     setCleared(false)
-    clearRepoCache(ws, repo).then((r) => {
+    clearRepoCache(provider, ws, repo).then((r) => {
       if (r.ok) {
         setCleared(true)
       } else {
@@ -242,6 +264,19 @@ function ClearCache() {
     <div className="flex flex-col gap-2 border-t border-muted-200 pt-4">
       <p className="text-sm font-medium">Clear a cached repo</p>
       <div className="flex flex-col gap-2 sm:flex-row">
+        <select
+          aria-label="Provider"
+          value={provider}
+          onChange={(e) => {
+            setProvider(e.target.value as 'bitbucket' | 'github')
+            setCleared(false)
+            setClearError('')
+          }}
+          className="border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring shrink-0 rounded-md border p-3 text-sm shadow-xs outline-none sm:w-40"
+        >
+          <option value="bitbucket">Bitbucket</option>
+          <option value="github">GitHub</option>
+        </select>
         <Input
           placeholder="workspace"
           value={ws}
@@ -266,7 +301,7 @@ function ClearCache() {
       </div>
       {cleared && (
         <p className="text-muted-foreground text-xs">
-          Cache cleared for {ws}/{repo}.
+          Cache cleared for {provider}/{ws}/{repo}.
         </p>
       )}
       {clearError && <p className="text-destructive text-xs">{clearError}</p>}

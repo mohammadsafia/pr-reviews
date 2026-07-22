@@ -105,7 +105,14 @@ describe('refreshSkillSource', () => {
 describe('clearRepoCache', () => {
   it('returns ok:true on success', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })))
-    expect(await clearRepoCache('ws', 'repo')).toEqual({ ok: true })
+    expect(await clearRepoCache('bitbucket', 'ws', 'repo')).toEqual({ ok: true })
+  })
+
+  it('hits the provider-scoped cache route', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await clearRepoCache('github', 'ws', 'repo')
+    expect(fetchMock).toHaveBeenCalledWith('/api/cache/github/ws/repo', { method: 'DELETE' })
   })
 
   it('surfaces a non-OK response as ok:false with the error, instead of always resolving', async () => {
@@ -113,14 +120,14 @@ describe('clearRepoCache', () => {
       'fetch',
       vi.fn(async () => new Response(JSON.stringify({ error: 'Invalid workspace or repo name' }), { status: 400 })),
     )
-    const r = await clearRepoCache('..', 'etc')
+    const r = await clearRepoCache('bitbucket', '..', 'etc')
     expect(r.ok).toBe(false)
     expect(r.error).toBe('Invalid workspace or repo name')
   })
 
   it('handles network failure without throwing', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('boom') }))
-    const r = await clearRepoCache('ws', 'repo')
+    const r = await clearRepoCache('bitbucket', 'ws', 'repo')
     expect(r.ok).toBe(false)
     expect(r.error).toContain('boom')
   })

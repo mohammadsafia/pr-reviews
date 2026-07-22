@@ -130,8 +130,12 @@ export function RunView() {
 
   async function retry() {
     if (!run) return
+    const url =
+      run.pr.provider === 'github'
+        ? `https://github.com/${run.pr.workspace}/${run.pr.repo}/pull/${run.pr.id}`
+        : `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`
     const res = await createRun({
-      url: `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`,
+      url,
       skills: run.skills,
       focus: run.focus,
       force: true,

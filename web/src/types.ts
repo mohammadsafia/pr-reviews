@@ -1,4 +1,5 @@
 export interface PrRef {
+  provider: 'bitbucket' | 'github'
   workspace: string
   repo: string
   id: number
@@ -64,6 +65,7 @@ export interface SkillInfo {
 export interface Config {
   bitbucketEmail: string
   bitbucketToken: string
+  githubToken: string
   cloneProtocol: 'ssh' | 'https'
   skillDirs: string[]
   model: string
