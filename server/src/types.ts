@@ -23,6 +23,18 @@ export interface RunEvent {
   kind: 'status' | 'text' | 'tool' | 'error'
   text: string
   at: string
+  /** Which per-skill subagent produced this event. Absent for the shared prep phase
+   * (checkout) events, which run before the fan-out and aren't attributable to any skill. */
+  skill?: string
+}
+
+/** Outcome of one skill's subagent within a fanned-out run — one per review unit
+ * (a selected skill, or the synthetic "general" unit when no skills were selected). */
+export interface SkillRunResult {
+  skill: string
+  status: 'completed' | 'failed'
+  findingCount: number
+  error?: string
 }
 
 export interface RunRecord {
@@ -38,6 +50,7 @@ export interface RunRecord {
   transcript: RunEvent[]
   error?: string
   postedCommentIds: number[]
+  skillResults: SkillRunResult[]
 }
 
 export interface SkillInfo {

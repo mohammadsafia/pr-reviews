@@ -23,7 +23,10 @@ export class RunStore {
   }
 
   create(
-    partial: Omit<RunRecord, 'id' | 'createdAt' | 'findings' | 'transcript' | 'postedCommentIds'>,
+    partial: Omit<
+      RunRecord,
+      'id' | 'createdAt' | 'findings' | 'transcript' | 'postedCommentIds' | 'skillResults'
+    >,
   ): RunRecord {
     const run: RunRecord = {
       ...partial,
@@ -32,6 +35,7 @@ export class RunStore {
       findings: [],
       transcript: [],
       postedCommentIds: [],
+      skillResults: [],
     }
     this.save(run)
     return run

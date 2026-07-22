@@ -18,8 +18,10 @@ describe('RunStore', () => {
     const run = store.create(base)
     expect(run.id).toBeTruthy()
     expect(run.findings).toEqual([])
+    expect(run.skillResults).toEqual([])
     const reloaded = new RunStore(dir).get(run.id)
     expect(reloaded?.prTitle).toBe('T')
+    expect(reloaded?.skillResults).toEqual([])
   })
 
   it('save overwrites and list returns newest first without transcripts', () => {

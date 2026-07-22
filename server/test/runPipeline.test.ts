@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildApp } from '../src/app.js'
@@ -50,6 +50,27 @@ function tempConfig(diffWarnLines = 8000): string {
   return path
 }
 
+/** Like tempConfig but seeds one skill directory per name in `names`, so scanSkillDirs
+ * (and therefore the executeRun fan-out) picks them up as selectable skills. */
+function tempConfigWithSkills(names: string[], diffWarnLines = 8000): string {
+  const dir = mkdtempSync(join(tmpdir(), 'prr-pipeline-skills-'))
+  const skillsDir = join(dir, 'skills')
+  for (const name of names) {
+    mkdirSync(join(skillsDir, name), { recursive: true })
+    writeFileSync(join(skillsDir, name, 'SKILL.md'), `---\nname: ${name}\ndescription: d\n---\nbody for ${name}`)
+  }
+  const path = join(dir, 'config.json')
+  const cfg = loadConfig(path)
+  cfg.bitbucketEmail = 'e@x.io'
+  cfg.bitbucketToken = 'tok'
+  cfg.skillDirs = [skillsDir]
+  cfg.runsDir = join(dir, 'runs')
+  cfg.cacheDir = join(dir, 'repos')
+  cfg.diffWarnLines = diffWarnLines
+  saveConfig(cfg, path)
+  return path
+}
+
 function fakeBitbucket(meta: PrMeta, diff: string): BitbucketLike {
   return {
     getPullRequest: async () => meta,
@@ -63,6 +84,24 @@ function fakeAgent(findings: unknown[]): AgentQuery {
   return async function* () {
     yield { type: 'assistant' as const, text: 'reviewing' }
     yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify(findings) + '\n```' }
+  }
+}
+
+/** Dispatches per-skill, based on the "## Skill: <name>" section runner.ts's buildReviewPrompt
+ * injects for each selected skill (absent → "general", the synthetic no-skills-selected unit).
+ * `bySkill[name]` is either an array of raw findings to report, or the literal 'fail' to make
+ * that skill's subagent report an agent failure (mirrors a real SDK error result). */
+function fakeAgentPerSkill(bySkill: Record<string, unknown[] | 'fail'>): AgentQuery {
+  return async function* (prompt: string) {
+    const match = /## Skill: (\S+)/.exec(prompt)
+    const skillName = match ? match[1] : 'general'
+    const outcome = bySkill[skillName]
+    yield { type: 'assistant' as const, text: `reviewing ${skillName}` }
+    if (outcome === 'fail') {
+      yield { type: 'result' as const, ok: false, text: `boom from ${skillName}` }
+      return
+    }
+    yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify(outcome ?? []) + '\n```' }
   }
 }
 
@@ -113,7 +152,11 @@ describe('run pipeline integration', () => {
     const { id } = createRes.json()
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
-    expect(run.findings).toEqual([finding])
+    // No skills selected -> the synthetic "general" unit runs, and executeRun force-attributes
+    // finding.skill = unit.name regardless of what the (fixture) finding claims, so it comes
+    // back as "general" rather than the "review-code" the fixture data sets.
+    expect(run.findings).toEqual([{ ...finding, skill: 'general' }])
+    expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 
   it('409s an oversized diff without force, and 202s (and completes) with force', async () => {
@@ -142,5 +185,120 @@ describe('run pipeline integration', () => {
     const { id } = forced.json()
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
+  })
+
+  it('fans out into one subagent per selected skill and merges findings from both', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const diff = '+line1\n+line2\n'
+    const findingA = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 'from a',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'wrong-label',
+    }
+    const findingB = {
+      file: 'a.txt',
+      line: 2,
+      severity: 'high',
+      category: 'bug',
+      summary: 'from b',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'wrong-label',
+    }
+    const app = buildApp({
+      configPath: path,
+      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgentPerSkill({ 'skill-a': [findingA], 'skill-b': [findingB] }),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    // Force-attribution overrides whatever skill label the agent claimed.
+    expect(run.findings).toEqual(
+      expect.arrayContaining([
+        { ...findingA, skill: 'skill-a' },
+        { ...findingB, skill: 'skill-b' },
+      ]),
+    )
+    expect(run.findings).toHaveLength(2)
+    expect(run.skillResults).toEqual(
+      expect.arrayContaining([
+        { skill: 'skill-a', status: 'completed', findingCount: 1 },
+        { skill: 'skill-b', status: 'completed', findingCount: 1 },
+      ]),
+    )
+    expect(run.skillResults).toHaveLength(2)
+    // Streamed events are tagged with the skill that produced them.
+    expect(run.transcript.some((e: any) => e.skill === 'skill-a')).toBe(true)
+    expect(run.transcript.some((e: any) => e.skill === 'skill-b')).toBe(true)
+  })
+
+  it('keeps the run completed with partial findings when only one of two skills fails', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const diff = '+line1\n+line2\n'
+    const findingA = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 'from a',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'skill-a',
+    }
+    const app = buildApp({
+      configPath: path,
+      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgentPerSkill({ 'skill-a': [findingA], 'skill-b': 'fail' }),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.findings).toEqual([findingA])
+    const bySkill = Object.fromEntries(run.skillResults.map((r: any) => [r.skill, r]))
+    expect(bySkill['skill-a']).toEqual({ skill: 'skill-a', status: 'completed', findingCount: 1 })
+    expect(bySkill['skill-b'].status).toBe('failed')
+    expect(bySkill['skill-b'].findingCount).toBe(0)
+    expect(bySkill['skill-b'].error).toBeTruthy()
+  })
+
+  it('marks the whole run failed when every skill subagent fails', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const diff = '+line1\n+line2\n'
+    const app = buildApp({
+      configPath: path,
+      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgentPerSkill({ 'skill-a': 'fail', 'skill-b': 'fail' }),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('failed')
+    expect(run.error).toMatch(/all 2 skill reviews failed/i)
+    expect(run.findings).toEqual([])
+    expect(run.skillResults.every((r: any) => r.status === 'failed')).toBe(true)
+    expect(run.skillResults).toHaveLength(2)
   })
 })

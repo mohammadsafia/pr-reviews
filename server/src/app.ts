@@ -12,7 +12,7 @@ import { makeSerialQueue } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
 import { RunStore } from './store/runs.js'
-import type { PrMeta, PrRef, RunEvent, RunRecord } from './types.js'
+import type { Finding, PrMeta, PrRef, RunEvent, RunRecord, SkillRunResult } from './types.js'
 
 const MASK = '***'
 
@@ -218,15 +218,61 @@ export function buildApp(
       })
       emit({ kind: 'status', text: 'Starting review agent…', at: new Date().toISOString() })
       const all = scanSkillDirs(c.skillDirs)
-      const skills = all
+      const selected = all
         .filter((sk) => ctx.body.skills.includes(sk.name))
         .map((sk) => ({ name: sk.name, content: readSkillContent(sk) }))
-      run.findings = await runReview(
-        { meta: ctx.meta, diff: ctx.diff, skills, focus: ctx.body.focus, cwd, model: c.model },
-        emit,
-        agentQuery,
+      // Each selected skill runs in its own subagent, in parallel, with no concurrency cap.
+      // When nothing is selected, fall back to a single synthetic "general" unit (skills: []
+      // passed to runReview) so the run behaves as a plain review, same as before this change.
+      const units = selected.length > 0 ? selected : [{ name: 'general', content: '' }]
+
+      const outcomes = await Promise.all(
+        units.map(async (unit): Promise<{ result: SkillRunResult; findings: Finding[] }> => {
+          const wrappedEmit = (e: RunEvent) => emit({ ...e, skill: unit.name })
+          wrappedEmit({
+            kind: 'status',
+            text: `Reviewing with skill: ${unit.name}…`,
+            at: new Date().toISOString(),
+          })
+          try {
+            const findings = await runReview(
+              {
+                meta: ctx.meta,
+                diff: ctx.diff,
+                skills: unit.name === 'general' ? [] : [{ name: unit.name, content: unit.content }],
+                focus: ctx.body.focus,
+                cwd,
+                model: c.model,
+              },
+              wrappedEmit,
+              agentQuery,
+            )
+            // Force the attribution rather than trusting whatever the model put in the
+            // finding's own "skill" field — guarantees correct grouping even if it mislabels.
+            for (const f of findings) f.skill = unit.name
+            return {
+              result: { skill: unit.name, status: 'completed', findingCount: findings.length },
+              findings,
+            }
+          } catch (err: any) {
+            wrappedEmit({ kind: 'error', text: err.message, at: new Date().toISOString() })
+            return {
+              result: { skill: unit.name, status: 'failed', findingCount: 0, error: err.message },
+              findings: [],
+            }
+          }
+        }),
       )
-      run.status = 'completed'
+
+      run.findings = outcomes.flatMap((o) => o.findings)
+      run.skillResults = outcomes.map((o) => o.result)
+      const allFailed = outcomes.every((o) => o.result.status === 'failed')
+      if (allFailed) {
+        run.status = 'failed'
+        run.error = `All ${outcomes.length} skill reviews failed`
+      } else {
+        run.status = 'completed'
+      }
     } catch (err: any) {
       if (s && run) {
         run.status = 'failed'
