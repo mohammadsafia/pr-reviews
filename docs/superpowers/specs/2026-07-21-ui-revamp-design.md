@@ -44,6 +44,21 @@ Deps added to web/: `react-router-dom@^6`, `tailwindcss@^4` + `@tailwindcss/vite
 
 **Settings (`/settings`)** — Cards per concern: **Bitbucket** (email, token as password input, caption "*** means your saved token is kept"), **Skills** (textarea, one directory per line), **Review engine** (model input, diff-warning threshold number), **Storage** (cache location input; "Clear a cached repo" row with workspace + repo inputs and an outline-destructive "Clear cache" button). Primary "Save changes" button; inline "Saved." confirmation; load/save errors surface in a destructive Alert (existing error-state logic preserved).
 
+## Addendum: skills management (user request, 2026-07-21)
+
+**Skills panel upgrade (New Review page):**
+- **Search** input above the skill cards filtering by name + description, client-side, instant.
+- **Category chips** between search and cards: category comes from an optional `category:` frontmatter key (server: `SkillInfo.category?: string`, parsed by the scanner) with a client-side fallback inferred from the name prefix (`create-*` → create, `audit-*` → audit, `review-*` → review, `debug-*` → debug, else "other"). Chips = All + distinct categories; selecting a chip filters, combinable with search. No heavier taxonomy — chips + search + select-all is deliberately the whole model.
+- **Select all / Deselect all**: a global pair next to the search field acting on *currently visible* (filtered) skills, plus a per-source-card toggle in the card header ("Select all" ↔ "Deselect all" when all of that card's visible skills are selected).
+- Selected-count feedback near the Run button: "N of M skills selected".
+
+**Skill sources (Settings page + server):**
+- Settings' raw skillDirs textarea becomes a **Skill sources** card: a structured list (path, skill count, remove button) + "Add local directory" input + **"Add from GitHub"** input accepting `owner/repo` or a full GitHub URL.
+- Server: `POST /api/skill-sources/github` body `{repo}` → shallow-clones `https://github.com/<owner>/<repo>.git` into `~/.pr-reviewer/skill-repos/<owner>__<repo>`, locates skill directories (a `skills/` folder at repo root if present, else the repo root — a dir qualifies when its immediate subdirectories contain `SKILL.md`), appends that dir to `config.skillDirs` (deduped), returns `{dir, skillCount}`. `DELETE /api/skill-sources` body `{dir}` removes the entry from `skillDirs` (and deletes the clone only when it lives under `skill-repos/`). A per-source **refresh** button runs `git -C <dir> pull` for GitHub-backed sources.
+- **Discovery**: a "Find skills on skills.sh" external link next to the GitHub input (skills.sh is GitHub-based — `owner/repo` identifiers — with no public search API, so discovery happens there and installation happens here). Skills installed through the skills.sh CLI into `~/.claude/skills` are already picked up by the default source.
+- "Upload" is served by the local-directory add (this is a local tool; a zip-upload flow adds no capability). 
+- **Trust note:** third-party skill content is injected into the review agent's prompt. The agent is read-only (Read/Grep/Glob) and comment posting stays behind manual confirmation, so the blast radius of a malicious skill is a bad review — but sources should still be reviewed before adding; the UI always shows each skill's source directory.
+
 ## Constraints carried over from v1 (unchanged)
 
 - Comments post ONLY via the explicit confirm dialog.
