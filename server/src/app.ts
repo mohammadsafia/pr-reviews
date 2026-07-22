@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { BitbucketAuthError, BitbucketClient } from './bitbucket/client.js'
 import { parsePrUrl } from './bitbucket/parsePrUrl.js'
-import { DEFAULT_CONFIG_PATH, loadConfig, saveConfig, type Config } from './config.js'
+import { ConfigSchema, DEFAULT_CONFIG_PATH, loadConfig, saveConfig, type Config } from './config.js'
 import { RepoCache } from './repos/cache.js'
 import { countDiffLines } from './review/findings.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
@@ -49,12 +49,17 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     return { ...c, bitbucketToken: c.bitbucketToken ? MASK : '' }
   })
 
-  app.put('/api/config', async (req) => {
+  app.put('/api/config', async (req, reply) => {
     const incoming = req.body as Config
     return withConfigLock(() => {
       const current = cfg()
       if (incoming.bitbucketToken === MASK) incoming.bitbucketToken = current.bitbucketToken
-      saveConfig(incoming, configPath)
+      const parsed = ConfigSchema.safeParse(incoming)
+      if (!parsed.success) {
+        reply.code(400)
+        return { error: parsed.error.message }
+      }
+      saveConfig(parsed.data, configPath)
       return { ok: true }
     })
   })

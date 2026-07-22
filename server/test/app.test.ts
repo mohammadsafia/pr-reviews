@@ -42,6 +42,27 @@ describe('app', () => {
     expect(loadConfig(path).model).toBe('claude-opus-4-8')
   })
 
+  it('PUT /api/config rejects an invalid field with 400 and leaves the on-disk config unchanged', async () => {
+    const path = tempConfig()
+    const before = loadConfig(path)
+    const app = buildApp({ configPath: path })
+    const body = { ...before, diffWarnLines: -5 }
+    const res = await app.inject({ method: 'PUT', url: '/api/config', payload: body })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBeTruthy()
+    expect(loadConfig(path)).toEqual(before)
+  })
+
+  it('PUT /api/config rejects an invalid cloneProtocol with 400 and leaves the on-disk config unchanged', async () => {
+    const path = tempConfig()
+    const before = loadConfig(path)
+    const app = buildApp({ configPath: path })
+    const body = { ...before, cloneProtocol: 'ftp' }
+    const res = await app.inject({ method: 'PUT', url: '/api/config', payload: body })
+    expect(res.statusCode).toBe(400)
+    expect(loadConfig(path)).toEqual(before)
+  })
+
   it('GET /api/skills lists scanned skills', async () => {
     const app = buildApp({ configPath: tempConfig() })
     const res = await app.inject({ method: 'GET', url: '/api/skills' })

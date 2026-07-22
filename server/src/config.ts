@@ -5,7 +5,7 @@ import { z } from 'zod'
 
 const home = homedir()
 
-const ConfigSchema = z.object({
+export const ConfigSchema = z.object({
   bitbucketEmail: z.string().default(''),
   bitbucketToken: z.string().default(''),
   cloneProtocol: z.enum(['ssh', 'https']).default('ssh'),
@@ -32,7 +32,21 @@ export function loadConfig(path: string = DEFAULT_CONFIG_PATH): Config {
     }
   }
   const parsed = ConfigSchema.safeParse(raw)
-  return parsed.success ? parsed.data : ConfigSchema.parse({})
+  if (parsed.success) return parsed.data
+
+  // Degrade per-field: a single invalid/missing field should not wipe the rest of a
+  // stored config back to all-defaults. Validate each field against its own schema and
+  // only fall back to that field's default when it individually fails to parse.
+  const rawObj: Record<string, unknown> =
+    typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
+  const shape = ConfigSchema.shape
+  const merged = {} as Config
+  for (const key of Object.keys(shape) as (keyof Config)[]) {
+    const fieldSchema = shape[key]
+    const fieldParsed = fieldSchema.safeParse(rawObj[key])
+    ;(merged as any)[key] = fieldParsed.success ? fieldParsed.data : fieldSchema.parse(undefined)
+  }
+  return merged
 }
 
 export function saveConfig(cfg: Config, path: string = DEFAULT_CONFIG_PATH): void {

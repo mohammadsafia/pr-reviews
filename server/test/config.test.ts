@@ -45,4 +45,23 @@ describe('config', () => {
     writeFileSync(path, '{not json')
     expect(loadConfig(path).model).toBe('claude-sonnet-5')
   })
+
+  it('degrades per-field: an invalid field falls back to its default without wiping other valid fields', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+    const path = join(dir, 'config.json')
+    writeFileSync(
+      path,
+      JSON.stringify({
+        bitbucketEmail: 'ok@x.io',
+        bitbucketToken: 'sekret',
+        cloneProtocol: 'ftp', // invalid: not 'ssh' | 'https'
+        diffWarnLines: 500,
+      }),
+    )
+    const cfg = loadConfig(path)
+    expect(cfg.bitbucketEmail).toBe('ok@x.io')
+    expect(cfg.bitbucketToken).toBe('sekret')
+    expect(cfg.diffWarnLines).toBe(500)
+    expect(cfg.cloneProtocol).toBe('ssh')
+  })
 })
