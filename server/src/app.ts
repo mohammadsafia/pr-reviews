@@ -229,12 +229,12 @@ export function buildApp(
       const outcomes = await Promise.all(
         units.map(async (unit): Promise<{ result: SkillRunResult; findings: Finding[] }> => {
           const wrappedEmit = (e: RunEvent) => emit({ ...e, skill: unit.name })
-          wrappedEmit({
-            kind: 'status',
-            text: `Reviewing with skill: ${unit.name}…`,
-            at: new Date().toISOString(),
-          })
           try {
+            wrappedEmit({
+              kind: 'status',
+              text: `Reviewing with skill: ${unit.name}…`,
+              at: new Date().toISOString(),
+            })
             const findings = await runReview(
               {
                 meta: ctx.meta,
