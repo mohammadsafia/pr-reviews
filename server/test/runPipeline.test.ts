@@ -5,9 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildApp } from '../src/app.js'
 import { loadConfig, saveConfig } from '../src/config.js'
-import type { BitbucketLike } from '../src/bitbucket/client.js'
 import type { AgentQuery } from '../src/review/runner.js'
-import type { PrMeta } from '../src/types.js'
+import type { PrMeta, PrProviderClient } from '../src/types.js'
 
 // Integration coverage for the full run pipeline: POST /api/runs -> queued executeRun ->
 // real RepoCache checkout against a local git fixture (mirroring repoCache.test.ts's
@@ -71,7 +70,7 @@ function tempConfigWithSkills(names: string[], diffWarnLines = 8000): string {
   return path
 }
 
-function fakeBitbucket(meta: PrMeta, diff: string): BitbucketLike {
+function fakeClient(meta: PrMeta, diff: string): PrProviderClient {
   return {
     getPullRequest: async () => meta,
     getDiff: async () => diff,
@@ -140,7 +139,7 @@ describe('run pipeline integration', () => {
     }
     const app = buildApp({
       configPath: path,
-      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
       agentQuery: fakeAgent([finding]),
     })
     const createRes = await app.inject({
@@ -164,7 +163,7 @@ describe('run pipeline integration', () => {
     const diff = '+line1\n+line2\n+line3\n'
     const app = buildApp({
       configPath: path,
-      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
       agentQuery: fakeAgent([]),
     })
 
@@ -212,7 +211,7 @@ describe('run pipeline integration', () => {
     }
     const app = buildApp({
       configPath: path,
-      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
       agentQuery: fakeAgentPerSkill({ 'skill-a': [findingA], 'skill-b': [findingB] }),
     })
     const createRes = await app.inject({
@@ -259,7 +258,7 @@ describe('run pipeline integration', () => {
     }
     const app = buildApp({
       configPath: path,
-      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
       agentQuery: fakeAgentPerSkill({ 'skill-a': [findingA], 'skill-b': 'fail' }),
     })
     const createRes = await app.inject({
@@ -284,7 +283,7 @@ describe('run pipeline integration', () => {
     const diff = '+line1\n+line2\n'
     const app = buildApp({
       configPath: path,
-      bitbucketFactory: () => fakeBitbucket({ ...meta, sourceCommit: commit }, diff),
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
       agentQuery: fakeAgentPerSkill({ 'skill-a': 'fail', 'skill-b': 'fail' }),
     })
     const createRes = await app.inject({
@@ -300,5 +299,37 @@ describe('run pipeline integration', () => {
     expect(run.findings).toEqual([])
     expect(run.skillResults.every((r: any) => r.status === 'failed')).toBe(true)
     expect(run.skillResults).toHaveLength(2)
+  })
+
+  it('drives a GitHub PR URL through the same pipeline to completed with findings (provider-agnostic fan-out)', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n+line2\n'
+    const finding = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'review-code',
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgent([finding]),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://github.com/ws/repo/pull/1', skills: [] },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.pr).toEqual({ provider: 'github', workspace: 'ws', repo: 'repo', id: 1 })
+    expect(run.findings).toEqual([{ ...finding, skill: 'general' }])
+    expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 })

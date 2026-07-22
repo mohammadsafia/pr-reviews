@@ -2,9 +2,10 @@ import { rmSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { dirname, join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { BitbucketAuthError, BitbucketClient, type BitbucketLike } from './bitbucket/client.js'
-import { parsePrUrl } from './bitbucket/parsePrUrl.js'
 import { ConfigSchema, DEFAULT_CONFIG_PATH, loadConfig, saveConfig, type Config } from './config.js'
+import { PrAuthError } from './providers/errors.js'
+import { makeClient } from './providers/factory.js'
+import { parsePrUrl } from './providers/parsePrUrl.js'
 import { RepoCache } from './repos/cache.js'
 import { countDiffLines } from './review/findings.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
@@ -12,11 +13,21 @@ import { makeSerialQueue } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
 import { RunStore } from './store/runs.js'
-import type { Finding, PrMeta, PrRef, RunEvent, RunRecord, SkillRunResult } from './types.js'
+import type {
+  Finding,
+  PrMeta,
+  PrProviderClient,
+  PrRef,
+  Provider,
+  RunEvent,
+  RunRecord,
+  SkillRunResult,
+} from './types.js'
 
 const MASK = '***'
 
 const SAFE_CACHE_SEGMENT = /^[A-Za-z0-9._-]+$/
+const PROVIDERS: readonly Provider[] = ['bitbucket', 'github']
 
 /** Path segments accepted for cache workspace/repo params: no separators, no bare "."/"..". */
 export function isSafeCacheSegment(s: string): boolean {
@@ -46,7 +57,7 @@ export function buildApp(
   deps: {
     configPath?: string
     agentQuery?: AgentQuery
-    bitbucketFactory?: (email: string, token: string) => BitbucketLike
+    clientFactory?: (pr: PrRef, cfg: Config) => PrProviderClient
   } = {},
 ): FastifyInstance {
   let cfgChain: Promise<unknown> = Promise.resolve()
@@ -61,7 +72,7 @@ export function buildApp(
 
   const configPath = deps.configPath ?? DEFAULT_CONFIG_PATH
   const agentQuery = deps.agentQuery ?? sdkQuery
-  const bitbucketFactory = deps.bitbucketFactory ?? ((email: string, token: string) => new BitbucketClient(email, token))
+  const clientFactory = deps.clientFactory ?? makeClient
   const app = Fastify()
   const events = new EventEmitter()
   const runQueue = makeSerialQueue((err) => app.log.error(err))
@@ -74,7 +85,11 @@ export function buildApp(
 
   app.get('/api/config', async () => {
     const c = cfg()
-    return { ...c, bitbucketToken: c.bitbucketToken ? MASK : '' }
+    return {
+      ...c,
+      bitbucketToken: c.bitbucketToken ? MASK : '',
+      githubToken: c.githubToken ? MASK : '',
+    }
   })
 
   app.put('/api/config', async (req, reply) => {
@@ -82,6 +97,7 @@ export function buildApp(
     return withConfigLock(() => {
       const current = cfg()
       if (incoming.bitbucketToken === MASK) incoming.bitbucketToken = current.bitbucketToken
+      if (incoming.githubToken === MASK) incoming.githubToken = current.githubToken
       const parsed = ConfigSchema.safeParse(incoming)
       if (!parsed.success) {
         reply.code(400)
@@ -162,14 +178,14 @@ export function buildApp(
     } catch (err: any) {
       return reply.code(400).send({ error: err.message })
     }
-    const client = bitbucketFactory(c.bitbucketEmail, c.bitbucketToken)
+    const client = clientFactory(pr, c)
     let meta: PrMeta
     let diff: string
     try {
       meta = await client.getPullRequest(pr)
       diff = await client.getDiff(pr)
     } catch (err: any) {
-      const code = err instanceof BitbucketAuthError ? 401 : 502
+      const code = err instanceof PrAuthError ? 401 : 502
       return reply.code(code).send({ error: err.message })
     }
     const diffLines = countDiffLines(diff)
@@ -209,7 +225,7 @@ export function buildApp(
       run.status = 'running'
       s.save(run)
       emit({ kind: 'status', text: 'Preparing repository checkout…', at: new Date().toISOString() })
-      const client = bitbucketFactory(c.bitbucketEmail, c.bitbucketToken)
+      const client = clientFactory(ctx.pr, c)
       const cache = new RepoCache(c.cacheDir)
       const cwd = await cache.ensureCheckout(ctx.pr, {
         cloneUrl: client.cloneUrl(ctx.pr, c.cloneProtocol),
@@ -320,7 +336,7 @@ export function buildApp(
     const run = s.get(id)
     if (!run) return reply.code(404).send({ error: 'Run not found' })
     const c = cfg()
-    const client = bitbucketFactory(c.bitbucketEmail, c.bitbucketToken)
+    const client = clientFactory(run.pr, c)
     const posted: number[] = []
     const failed: { index: number; error: string }[] = []
     for (const i of findingIndexes) {
@@ -340,13 +356,20 @@ export function buildApp(
     return { posted, failed }
   })
 
-  app.delete('/api/cache/:workspace/:repo', async (req, reply) => {
-    const { workspace, repo } = req.params as { workspace: string; repo: string }
+  app.delete('/api/cache/:provider/:workspace/:repo', async (req, reply) => {
+    const { provider, workspace, repo } = req.params as {
+      provider: string
+      workspace: string
+      repo: string
+    }
+    if (!PROVIDERS.includes(provider as Provider)) {
+      return reply.code(400).send({ error: 'Invalid provider' })
+    }
     if (!isSafeCacheSegment(workspace) || !isSafeCacheSegment(repo)) {
       return reply.code(400).send({ error: 'Invalid workspace or repo name' })
     }
     try {
-      new RepoCache(cfg().cacheDir).clear({ workspace, repo, id: 0 })
+      new RepoCache(cfg().cacheDir).clear({ provider: provider as Provider, workspace, repo, id: 0 })
     } catch (err: any) {
       return reply.code(400).send({ error: err.message })
     }

@@ -10,6 +10,7 @@ describe('config', () => {
     expect(cfg.model).toBe('claude-sonnet-5')
     expect(cfg.diffWarnLines).toBe(8000)
     expect(cfg.bitbucketToken).toBe('')
+    expect(cfg.githubToken).toBe('')
     expect(cfg.cacheDir.endsWith('/.pr-reviewer/repos')).toBe(true)
     expect(cfg.cloneProtocol).toBe('ssh')
   })

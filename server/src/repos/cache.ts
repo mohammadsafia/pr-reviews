@@ -27,7 +27,7 @@ export class RepoCache {
   constructor(private root: string) {}
 
   repoDir(pr: PrRef): string {
-    return join(this.root, pr.workspace, pr.repo)
+    return join(this.root, pr.provider, pr.workspace, pr.repo)
   }
 
   async ensureCheckout(
@@ -37,7 +37,7 @@ export class RepoCache {
     const dir = this.repoDir(pr)
     if (!existsSync(join(dir, '.git'))) {
       rmSync(dir, { recursive: true, force: true })
-      mkdirSync(join(this.root, pr.workspace), { recursive: true })
+      mkdirSync(join(this.root, pr.provider, pr.workspace), { recursive: true })
       await git(undefined, 'clone', ['clone', '--depth', '50', opts.cloneUrl, dir])
     }
     await git(dir, 'fetch', ['fetch', '--depth', '50', 'origin', opts.sourceBranch])

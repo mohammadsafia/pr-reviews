@@ -1,16 +1,14 @@
-import type { PrMeta, PrRef } from '../types.js'
+import { PrAuthError } from '../providers/errors.js'
+import type { PrMeta, PrProviderClient, PrRef } from '../types.js'
 
 const API = 'https://api.bitbucket.org/2.0'
 
-/** Structural shape the app depends on, so tests can inject a fake client. */
-export interface BitbucketLike {
-  getPullRequest(pr: PrRef): Promise<PrMeta>
-  getDiff(pr: PrRef): Promise<string>
-  postInlineComment(pr: PrRef, c: { path: string; line: number; text: string }): Promise<number>
-  cloneUrl(pr: PrRef, protocol?: 'ssh' | 'https'): string
-}
+/** Structural shape the app depends on, so tests can inject a fake client.
+ * @deprecated superseded by `PrProviderClient` in `../types.js`; kept as an alias so existing
+ * imports keep working. */
+export type BitbucketLike = PrProviderClient
 
-export class BitbucketAuthError extends Error {
+export class BitbucketAuthError extends PrAuthError {
   constructor(status: number) {
     super(
       status === 401
@@ -21,7 +19,7 @@ export class BitbucketAuthError extends Error {
   }
 }
 
-export class BitbucketClient {
+export class BitbucketClient implements PrProviderClient {
   constructor(
     private email: string,
     private token: string,

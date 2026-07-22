@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { RunStore } from '../src/store/runs.js'
 
 const base = {
-  pr: { workspace: 'ws', repo: 'r', id: 1 },
+  pr: { provider: 'bitbucket' as const, workspace: 'ws', repo: 'r', id: 1 },
   prTitle: 'T',
   skills: ['review-code'],
   status: 'running' as const,

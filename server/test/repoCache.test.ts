@@ -7,7 +7,7 @@ import { RepoCache, redactCredentials } from '../src/repos/cache.js'
 
 let origin: string
 let commit: string
-const pr = { workspace: 'ws', repo: 'fixture', id: 1 }
+const pr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'fixture', id: 1 }
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -50,6 +50,16 @@ describe('RepoCache', () => {
     expect(second).toBe(first)
   })
 
+  it('namespaces the repo dir by provider, so bitbucket and github clones of the same workspace/repo do not collide', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'prr-cache-'))
+    const cache = new RepoCache(root)
+    const bbPr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'fixture', id: 1 }
+    const ghPr = { provider: 'github' as const, workspace: 'ws', repo: 'fixture', id: 1 }
+    expect(cache.repoDir(bbPr)).toBe(join(root, 'bitbucket', 'ws', 'fixture'))
+    expect(cache.repoDir(ghPr)).toBe(join(root, 'github', 'ws', 'fixture'))
+    expect(cache.repoDir(bbPr)).not.toBe(cache.repoDir(ghPr))
+  })
+
   it('clear removes the cached repo', async () => {
     const root = mkdtempSync(join(tmpdir(), 'prr-cache-'))
     const cache = new RepoCache(root)
@@ -61,7 +71,7 @@ describe('RepoCache', () => {
   it('self-heals a stale repo dir without .git', async () => {
     const root = mkdtempSync(join(tmpdir(), 'prr-cache-'))
     const cache = new RepoCache(root)
-    const repoPath = join(root, 'ws', 'fixture')
+    const repoPath = join(root, 'bitbucket', 'ws', 'fixture')
     mkdirSync(repoPath, { recursive: true })
     writeFileSync(join(repoPath, 'stale.txt'), 'junk')
     const dir = await cache.ensureCheckout(pr, {
@@ -103,9 +113,9 @@ describe('RepoCache', () => {
     const sentinelDir = join(dirname(root), 'sentinel-outside-cache')
     mkdirSync(sentinelDir, { recursive: true })
     writeFileSync(join(sentinelDir, 'keep.txt'), 'keep me')
-    expect(() => cache.clear({ workspace: '..', repo: 'sentinel-outside-cache', id: 0 })).toThrow(
-      /outside/i,
-    )
+    expect(() =>
+      cache.clear({ provider: 'bitbucket', workspace: '../..', repo: 'sentinel-outside-cache', id: 0 }),
+    ).toThrow(/outside/i)
     expect(existsSync(join(sentinelDir, 'keep.txt'))).toBe(true)
   })
 })

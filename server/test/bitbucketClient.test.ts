@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { BitbucketClient, BitbucketAuthError } from '../src/bitbucket/client.js'
 
-const pr = { workspace: 'ws', repo: 'r', id: 5 }
+const pr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'r', id: 5 }
 
 function fakeFetch(status: number, body: unknown, text = '') {
   return vi.fn(async () =>

@@ -5,8 +5,7 @@ import { dirname, join } from 'node:path'
 import { buildApp } from '../src/app.js'
 import { saveConfig, loadConfig } from '../src/config.js'
 import { RunStore } from '../src/store/runs.js'
-import type { BitbucketLike } from '../src/bitbucket/client.js'
-import type { Finding } from '../src/types.js'
+import type { Finding, PrProviderClient } from '../src/types.js'
 
 function tempConfig(): string {
   const dir = mkdtempSync(join(tmpdir(), 'prr-app-'))
@@ -20,6 +19,7 @@ function tempConfig(): string {
   const cfg = loadConfig(path)
   cfg.bitbucketToken = 'tok'
   cfg.bitbucketEmail = 'e@x.io'
+  cfg.githubToken = 'ghtok'
   cfg.skillDirs = [skillsDir]
   cfg.runsDir = join(dir, 'runs')
   cfg.cacheDir = join(dir, 'repos')
@@ -28,20 +28,27 @@ function tempConfig(): string {
 }
 
 describe('app', () => {
-  it('GET /api/config masks the token', async () => {
+  it('GET /api/config masks both tokens', async () => {
     const app = buildApp({ configPath: tempConfig() })
     const res = await app.inject({ method: 'GET', url: '/api/config' })
     expect(res.statusCode).toBe(200)
     expect(res.json().bitbucketToken).toBe('***')
+    expect(res.json().githubToken).toBe('***')
   })
 
-  it('PUT /api/config keeps existing token when masked value is sent', async () => {
+  it('PUT /api/config keeps existing tokens when masked values are sent', async () => {
     const path = tempConfig()
     const app = buildApp({ configPath: path })
-    const body = { ...loadConfig(path), bitbucketToken: '***', model: 'claude-opus-4-8' }
+    const body = {
+      ...loadConfig(path),
+      bitbucketToken: '***',
+      githubToken: '***',
+      model: 'claude-opus-4-8',
+    }
     const res = await app.inject({ method: 'PUT', url: '/api/config', payload: body })
     expect(res.statusCode).toBe(200)
     expect(loadConfig(path).bitbucketToken).toBe('tok')
+    expect(loadConfig(path).githubToken).toBe('ghtok')
     expect(loadConfig(path).model).toBe('claude-opus-4-8')
   })
 
@@ -77,7 +84,29 @@ describe('app', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/runs',
-      payload: { url: 'https://github.com/a/b/pull/1', skills: [] },
+      payload: { url: 'https://example.com/not/a/pr', skills: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Invalid PR URL/)
+  })
+
+  it('POST /api/runs rejects a malformed bitbucket URL with 400', async () => {
+    const app = buildApp({ configPath: tempConfig() })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/src/main', skills: [] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Invalid PR URL/)
+  })
+
+  it('POST /api/runs rejects a malformed github URL with 400', async () => {
+    const app = buildApp({ configPath: tempConfig() })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://github.com/ws/repo/issues/1', skills: [] },
     })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toMatch(/Invalid PR URL/)
@@ -193,7 +222,7 @@ describe('app', () => {
     const c = loadConfig(path)
     const runStore = new RunStore(c.runsDir)
     const run = runStore.create({
-      pr: { workspace: 'ws', repo: 'repo', id: 1 },
+      pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 1 },
       prTitle: 'T',
       skills: [],
       status: 'completed',
@@ -212,7 +241,7 @@ describe('app', () => {
     runStore.save(run)
 
     let call = 0
-    const fakeBitbucket: BitbucketLike = {
+    const fakeBitbucket: PrProviderClient = {
       getPullRequest: async () => {
         throw new Error('not used')
       },
@@ -226,7 +255,7 @@ describe('app', () => {
         throw new Error('bitbucket down')
       },
     }
-    const app = buildApp({ configPath: path, bitbucketFactory: () => fakeBitbucket })
+    const app = buildApp({ configPath: path, clientFactory: () => fakeBitbucket })
     const res = await app.inject({
       method: 'POST',
       url: `/api/runs/${run.id}/comments`,
@@ -240,7 +269,7 @@ describe('app', () => {
     expect(saved.postedCommentIds).toEqual([111])
   })
 
-  it('DELETE /api/cache/:workspace/:repo rejects path traversal and deletes nothing outside the cache', async () => {
+  it('DELETE /api/cache/:provider/:workspace/:repo rejects path traversal and deletes nothing outside the cache', async () => {
     const path = tempConfig()
     const app = buildApp({ configPath: path })
     const c = loadConfig(path)
@@ -249,13 +278,13 @@ describe('app', () => {
     mkdirSync(sentinelDir, { recursive: true })
     writeFileSync(join(sentinelDir, 'passwd'), 'secret')
 
-    const res = await app.inject({ method: 'DELETE', url: '/api/cache/..%2Fetc/passwd' })
+    const res = await app.inject({ method: 'DELETE', url: '/api/cache/bitbucket/..%2Fetc/passwd' })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toBeTruthy()
     expect(existsSync(join(sentinelDir, 'passwd'))).toBe(true)
   })
 
-  it('DELETE /api/cache/:workspace/:repo rejects "." and ".." segments explicitly', async () => {
+  it('DELETE /api/cache/:provider/:workspace/:repo rejects "." and ".." segments explicitly', async () => {
     // Fastify's router normalizes bare "." / ".." path segments before dispatch (they never
     // reach our handler as literal params — requests for them 404 at the router). We assert
     // the safe-segment validator itself rejects "." and ".." directly as defense in depth,
@@ -267,15 +296,37 @@ describe('app', () => {
     expect(isSafeCacheSegment('../etc')).toBe(false)
   })
 
-  it('DELETE /api/cache/:workspace/:repo succeeds for a normal workspace/repo', async () => {
+  it('DELETE /api/cache/:provider/:workspace/:repo rejects an unknown provider with 400', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const res = await app.inject({ method: 'DELETE', url: '/api/cache/gitlab/ws/repo' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/provider/i)
+  })
+
+  it('DELETE /api/cache/:provider/:workspace/:repo succeeds for a normal bitbucket workspace/repo', async () => {
     const path = tempConfig()
     const app = buildApp({ configPath: path })
     const c = loadConfig(path)
-    const repoDir = join(c.cacheDir, 'ws', 'repo')
+    const repoDir = join(c.cacheDir, 'bitbucket', 'ws', 'repo')
     mkdirSync(repoDir, { recursive: true })
     writeFileSync(join(repoDir, 'file.txt'), 'x')
 
-    const res = await app.inject({ method: 'DELETE', url: '/api/cache/ws/repo' })
+    const res = await app.inject({ method: 'DELETE', url: '/api/cache/bitbucket/ws/repo' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true })
+    expect(existsSync(repoDir)).toBe(false)
+  })
+
+  it('DELETE /api/cache/:provider/:workspace/:repo succeeds for a normal github workspace/repo', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const c = loadConfig(path)
+    const repoDir = join(c.cacheDir, 'github', 'ws', 'repo')
+    mkdirSync(repoDir, { recursive: true })
+    writeFileSync(join(repoDir, 'file.txt'), 'x')
+
+    const res = await app.inject({ method: 'DELETE', url: '/api/cache/github/ws/repo' })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ ok: true })
     expect(existsSync(repoDir)).toBe(false)
@@ -286,19 +337,19 @@ describe('app', () => {
     const c = loadConfig(path)
     const runStore = new RunStore(c.runsDir)
     const runningRun = runStore.create({
-      pr: { workspace: 'ws', repo: 'repo', id: 1 },
+      pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 1 },
       prTitle: 'Running one',
       skills: [],
       status: 'running',
     })
     const queuedRun = runStore.create({
-      pr: { workspace: 'ws', repo: 'repo', id: 2 },
+      pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 2 },
       prTitle: 'Queued one',
       skills: [],
       status: 'queued',
     })
     const completedRun = runStore.create({
-      pr: { workspace: 'ws', repo: 'repo', id: 3 },
+      pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 3 },
       prTitle: 'Completed one',
       skills: [],
       status: 'completed',
