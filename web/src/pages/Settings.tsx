@@ -19,6 +19,13 @@ import {
 import { isSkillRepoDir } from '../lib/skills.js'
 import type { Config, SkillInfo } from '../types.js'
 
+const MODELS = [
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — balanced (recommended)' },
+  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 — most capable Opus' },
+  { id: 'claude-fable-5', label: 'Claude Fable 5 — highest capability' },
+  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — fastest / cheapest' },
+] as const
+
 export function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null)
   const [saved, setSaved] = useState(false)
@@ -145,7 +152,36 @@ export function Settings() {
         <Card.Content className="flex flex-col gap-4 pt-0">
           <div className="flex flex-col gap-2">
             <Label htmlFor="model">Model</Label>
-            <Input id="model" value={cfg.model} onChange={(e) => set({ model: e.target.value })} />
+            {(() => {
+              const isKnown = MODELS.some((m) => m.id === cfg.model)
+              return (
+                <>
+                  <select
+                    id="model"
+                    value={isKnown ? cfg.model : 'custom'}
+                    onChange={(e) =>
+                      set({ model: e.target.value === 'custom' ? '' : e.target.value })
+                    }
+                    className="border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring flex w-full rounded-md border p-3 text-sm shadow-xs outline-none"
+                  >
+                    {MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                    <option value="custom">Custom…</option>
+                  </select>
+                  {!isKnown && (
+                    <Input
+                      aria-label="Custom model ID"
+                      placeholder="e.g. claude-opus-4-8 or a dated snapshot"
+                      value={cfg.model}
+                      onChange={(e) => set({ model: e.target.value })}
+                    />
+                  )}
+                </>
+              )
+            })()}
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="diff-warn">Diff warning threshold (changed lines)</Label>
