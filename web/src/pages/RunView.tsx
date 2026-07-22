@@ -1,9 +1,26 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+
+import { Alert } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Dialog } from '@/components/ui/dialog'
+import { FindingCard } from '@/components/FindingCard'
+import { ReviewConsole } from '@/components/ReviewConsole'
+import { StatusBadge } from '@/components/StatusBadge'
+
 import { createRun, getRun, postComments, subscribeRun } from '../api.js'
 import type { Finding, RunEvent, RunRecord, Severity } from '../types.js'
 
 const ORDER: Severity[] = ['high', 'medium', 'low', 'info']
+
+const SEVERITY_VARIANT: Record<Severity, 'destructive' | 'warning' | 'accent' | 'muted'> = {
+  high: 'destructive',
+  medium: 'warning',
+  low: 'accent',
+  info: 'muted',
+}
 
 export function groupFindingsBySeverity(
   findings: Finding[],
@@ -25,7 +42,6 @@ export function RunView() {
   const [confirming, setConfirming] = useState(false)
   const [posted, setPosted] = useState<number[] | null>(null)
   const [loadError, setLoadError] = useState('')
-  const feedRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -56,112 +72,155 @@ export function RunView() {
     }
   }, [id])
 
-  useEffect(() => {
-    feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight })
-  }, [live])
+  if (loadError) {
+    return (
+      <main>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <Alert.Title>Couldn't load run</Alert.Title>
+          <Alert.Description>{loadError}</Alert.Description>
+        </Alert>
+      </main>
+    )
+  }
+  if (!run) return <p className="text-muted-foreground text-sm">Loading…</p>
 
-  if (loadError) return <p className="error">Failed to load run: {loadError}</p>
-  if (!run) return <p>Loading…</p>
   const active = run.status === 'running' || run.status === 'queued'
+
+  function toggleFinding(index: number) {
+    const next = new Set(checked)
+    next.has(index) ? next.delete(index) : next.add(index)
+    setChecked(next)
+  }
+
+  async function retry() {
+    if (!run) return
+    const res = await createRun({
+      url: `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`,
+      skills: run.skills,
+      focus: run.focus,
+      force: true,
+    })
+    if (res.id) navigate(`/runs/${res.id}`)
+  }
 
   async function post() {
     const ids = await postComments(id, [...checked])
     setPosted(ids)
     setConfirming(false)
+    setChecked(new Set())
   }
 
-  return (
-    <main>
-      <h2>
-        {run.prTitle} <small>({run.status})</small>
-      </h2>
-      <p>
-        {run.pr.workspace}/{run.pr.repo}#{run.pr.id} · skills: {run.skills.join(', ') || 'none'}
-      </p>
+  const selectedItems = run.findings
+    .map((finding, index) => ({ finding, index }))
+    .filter(({ index }) => checked.has(index))
 
-      {(active || run.status === 'failed') && (
-        <div className="feed" ref={feedRef}>
-          {live.map((e, i) => (
-            <p key={i} className={`ev-${e.kind}`}>
-              {e.kind === 'tool' ? '🔧 ' : e.kind === 'error' ? '❌ ' : ''}
-              {e.text}
-            </p>
-          ))}
+  return (
+    <main className="flex flex-col gap-8 pb-8">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="font-family-display text-2xl">{run.prTitle}</h1>
+          <StatusBadge status={run.status} />
         </div>
-      )}
+        <p className="text-muted-foreground font-family-mono text-sm">
+          {run.pr.workspace}/{run.pr.repo}#{run.pr.id}
+        </p>
+        {run.skills.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {run.skills.map((s) => (
+              <Badge key={s} variant="muted" size="xs">
+                {s}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ReviewConsole events={live} running={active} startedAt={run.createdAt} finishedAt={run.finishedAt} />
+
       {run.status === 'failed' && (
-        <>
-          <p className="error">Run failed: {run.error}</p>
-          <button
-            onClick={async () => {
-              const res = await createRun({
-                url: `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`,
-                skills: run.skills,
-                focus: run.focus,
-                force: true,
-              })
-              if (res.id) navigate(`/runs/${res.id}`)
-            }}
-          >
-            Retry run
-          </button>
-        </>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <Alert.Title>Run failed</Alert.Title>
+          <Alert.Description className="flex flex-col gap-2">
+            <span>{run.error}</span>
+            <Button variant="secondary" size="sm" className="w-fit" onClick={retry}>
+              Retry run
+            </Button>
+          </Alert.Description>
+        </Alert>
       )}
 
       {run.status === 'completed' && (
-        <>
-          {run.findings.length === 0 && <p>✅ No findings — the agent had nothing to flag.</p>}
-          {groupFindingsBySeverity(run.findings).map((g) => (
-            <section key={g.severity}>
-              <h3 className={`sev-${g.severity}`}>{g.severity}</h3>
-              {g.items.map(({ finding, index }) => (
-                <article key={index}>
-                  <label>
-                    <input
-                      type="checkbox"
+        <div className="flex flex-col gap-6">
+          <div className="flex items-baseline gap-2">
+            <h2 className="font-family-display text-xl">Findings</h2>
+            <span className="text-muted-foreground text-sm">({run.findings.length})</span>
+          </div>
+
+          {run.findings.length === 0 ? (
+            <Alert variant="success">
+              <CheckCircle2 className="h-4 w-4" />
+              <Alert.Description>Nothing to flag. The agent reviewed this PR clean.</Alert.Description>
+            </Alert>
+          ) : (
+            groupFindingsBySeverity(run.findings).map((g) => (
+              <div key={g.severity} className="flex flex-col gap-3">
+                <Badge variant={SEVERITY_VARIANT[g.severity]} size="sm" className="w-fit capitalize">
+                  {g.severity}
+                </Badge>
+                <div className="flex flex-col gap-3">
+                  {g.items.map(({ finding, index }) => (
+                    <FindingCard
+                      key={index}
+                      finding={finding}
+                      index={index}
                       checked={checked.has(index)}
-                      onChange={() => {
-                        const next = new Set(checked)
-                        next.has(index) ? next.delete(index) : next.add(index)
-                        setChecked(next)
-                      }}
+                      onToggle={toggleFinding}
                     />
-                    <code>
-                      {finding.file}:{finding.line}
-                    </code>{' '}
-                    [{finding.category} · {finding.skill}] {finding.summary}
-                  </label>
-                  <p>{finding.detail}</p>
-                  <pre>{finding.suggestion}</pre>
-                </article>
-              ))}
-            </section>
-          ))}
-          {run.findings.length > 0 && !confirming && (
-            <button disabled={checked.size === 0} onClick={() => setConfirming(true)}>
-              Post {checked.size} selected to Bitbucket…
-            </button>
+                  ))}
+                </div>
+              </div>
+            ))
           )}
-          {confirming && (
-            <div className="confirm">
-              <p>These comments will be created on the PR:</p>
-              <ul>
-                {[...checked].map((i) => (
-                  <li key={i}>
-                    <code>
-                      {run.findings[i].file}:{run.findings[i].line}
-                    </code>{' '}
-                    — {run.findings[i].summary}
-                  </li>
-                ))}
-              </ul>
-              <button onClick={post}>Confirm — post to Bitbucket</button>
-              <button onClick={() => setConfirming(false)}>Cancel</button>
-            </div>
-          )}
-          {posted && <p>✅ Posted {posted.length} comments.</p>}
-        </>
+
+          {posted && <p className="text-success text-sm">Posted {posted.length} comments.</p>}
+        </div>
       )}
+
+      {checked.size > 0 && (
+        <div className="bg-background border-muted-200 sticky bottom-0 z-40 -mx-6 flex items-center justify-between gap-4 border-t px-6 py-4 shadow-deep sm:-mx-10 sm:px-10">
+          <span className="text-sm font-medium">{checked.size} selected</span>
+          <Button onClick={() => setConfirming(true)}>Post to Bitbucket…</Button>
+        </div>
+      )}
+
+      <Dialog open={confirming} onOpenChange={setConfirming}>
+        <Dialog.Panel>
+          <Dialog.Header>
+            <Dialog.Title>Post {checked.size} comments to Bitbucket?</Dialog.Title>
+            <Dialog.Description>These comments will be created on the pull request.</Dialog.Description>
+          </Dialog.Header>
+          <Dialog.Content>
+            <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+              {selectedItems.map(({ finding, index }) => (
+                <li key={index} className="text-sm">
+                  <span className="bg-code-surface text-code-foreground font-family-mono rounded px-1.5 py-0.5 text-xs">
+                    {finding.file}:{finding.line}
+                  </span>{' '}
+                  — {finding.summary}
+                </li>
+              ))}
+            </ul>
+          </Dialog.Content>
+          <Dialog.Footer className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            <Button onClick={post}>Post {checked.size} comments</Button>
+          </Dialog.Footer>
+        </Dialog.Panel>
+      </Dialog>
     </main>
   )
 }
