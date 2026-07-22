@@ -41,17 +41,38 @@ export async function createRun(input: {
   }
 }
 
+export interface PostCommentsResult {
+  posted: number[]
+  failed: { index: number; error: string }[]
+}
+
 export const postComments = (id: string, findingIndexes: number[]) =>
   fetch(`/api/runs/${id}/comments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ findingIndexes }),
-  })
-    .then((r) => json<{ posted: number[] }>(r))
-    .then((r) => r.posted)
+  }).then((r) => json<PostCommentsResult>(r))
 
-export const clearRepoCache = (workspace: string, repo: string) =>
-  fetch(`/api/cache/${workspace}/${repo}`, { method: 'DELETE' }).then(() => undefined)
+export async function clearRepoCache(
+  workspace: string,
+  repo: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch(`/api/cache/${workspace}/${repo}`, { method: 'DELETE' })
+    if (!res.ok) {
+      let body: any = {}
+      try {
+        body = await res.json()
+      } catch {
+        // ignore non-JSON body
+      }
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` }
+    }
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Network error' }
+  }
+}
 
 export async function addGithubSkillSource(
   repo: string,

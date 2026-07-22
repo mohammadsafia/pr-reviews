@@ -2,6 +2,14 @@ import type { PrMeta, PrRef } from '../types.js'
 
 const API = 'https://api.bitbucket.org/2.0'
 
+/** Structural shape the app depends on, so tests can inject a fake client. */
+export interface BitbucketLike {
+  getPullRequest(pr: PrRef): Promise<PrMeta>
+  getDiff(pr: PrRef): Promise<string>
+  postInlineComment(pr: PrRef, c: { path: string; line: number; text: string }): Promise<number>
+  cloneUrl(pr: PrRef, protocol?: 'ssh' | 'https'): string
+}
+
 export class BitbucketAuthError extends Error {
   constructor(status: number) {
     super(

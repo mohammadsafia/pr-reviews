@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { dirname, join } from 'node:path'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { BitbucketAuthError, BitbucketClient } from './bitbucket/client.js'
+import { BitbucketAuthError, BitbucketClient, type BitbucketLike } from './bitbucket/client.js'
 import { parsePrUrl } from './bitbucket/parsePrUrl.js'
 import { ConfigSchema, DEFAULT_CONFIG_PATH, loadConfig, saveConfig, type Config } from './config.js'
 import { RepoCache } from './repos/cache.js'
@@ -23,7 +23,13 @@ export function isSafeCacheSegment(s: string): boolean {
   return SAFE_CACHE_SEGMENT.test(s) && s !== '.' && s !== '..'
 }
 
-export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } = {}): FastifyInstance {
+export function buildApp(
+  deps: {
+    configPath?: string
+    agentQuery?: AgentQuery
+    bitbucketFactory?: (email: string, token: string) => BitbucketLike
+  } = {},
+): FastifyInstance {
   let cfgChain: Promise<unknown> = Promise.resolve()
   function withConfigLock<T>(fn: () => T | Promise<T>): Promise<T> {
     const run = cfgChain.then(fn)
@@ -36,6 +42,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
 
   const configPath = deps.configPath ?? DEFAULT_CONFIG_PATH
   const agentQuery = deps.agentQuery ?? sdkQuery
+  const bitbucketFactory = deps.bitbucketFactory ?? ((email: string, token: string) => new BitbucketClient(email, token))
   const app = Fastify()
   const events = new EventEmitter()
   const runQueue = makeSerialQueue((err) => app.log.error(err))
@@ -134,7 +141,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     } catch (err: any) {
       return reply.code(400).send({ error: err.message })
     }
-    const client = new BitbucketClient(c.bitbucketEmail, c.bitbucketToken)
+    const client = bitbucketFactory(c.bitbucketEmail, c.bitbucketToken)
     let meta: PrMeta
     let diff: string
     try {
@@ -181,7 +188,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
       run.status = 'running'
       s.save(run)
       emit({ kind: 'status', text: 'Preparing repository checkout…', at: new Date().toISOString() })
-      const client = new BitbucketClient(c.bitbucketEmail, c.bitbucketToken)
+      const client = bitbucketFactory(c.bitbucketEmail, c.bitbucketToken)
       const cache = new RepoCache(c.cacheDir)
       const cwd = await cache.ensureCheckout(ctx.pr, {
         cloneUrl: client.cloneUrl(ctx.pr, c.cloneProtocol),
@@ -246,17 +253,24 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     const run = s.get(id)
     if (!run) return reply.code(404).send({ error: 'Run not found' })
     const c = cfg()
-    const client = new BitbucketClient(c.bitbucketEmail, c.bitbucketToken)
+    const client = bitbucketFactory(c.bitbucketEmail, c.bitbucketToken)
     const posted: number[] = []
+    const failed: { index: number; error: string }[] = []
     for (const i of findingIndexes) {
       const f = run.findings[i]
       if (!f) continue
       const text = `**[AI review — ${f.severity}/${f.category}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
-      posted.push(await client.postInlineComment(run.pr, { path: f.file, line: f.line, text }))
+      try {
+        const commentId = await client.postInlineComment(run.pr, { path: f.file, line: f.line, text })
+        posted.push(commentId)
+        run.postedCommentIds.push(commentId)
+        s.save(run)
+      } catch (err: any) {
+        failed.push({ index: i, error: err.message })
+        break
+      }
     }
-    run.postedCommentIds.push(...posted)
-    s.save(run)
-    return { posted }
+    return { posted, failed }
   })
 
   app.delete('/api/cache/:workspace/:repo', async (req, reply) => {

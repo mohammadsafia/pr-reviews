@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { addGithubSkillSource, createRun, refreshSkillSource, removeSkillSource } from '../src/api.js'
+import {
+  addGithubSkillSource,
+  clearRepoCache,
+  createRun,
+  postComments,
+  refreshSkillSource,
+  removeSkillSource,
+} from '../src/api.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -92,5 +99,44 @@ describe('refreshSkillSource', () => {
     )
     const r = await refreshSkillSource('/x')
     expect(r.error).toBe('Not a GitHub-backed skill source')
+  })
+})
+
+describe('clearRepoCache', () => {
+  it('returns ok:true on success', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })))
+    expect(await clearRepoCache('ws', 'repo')).toEqual({ ok: true })
+  })
+
+  it('surfaces a non-OK response as ok:false with the error, instead of always resolving', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: 'Invalid workspace or repo name' }), { status: 400 })),
+    )
+    const r = await clearRepoCache('..', 'etc')
+    expect(r.ok).toBe(false)
+    expect(r.error).toBe('Invalid workspace or repo name')
+  })
+
+  it('handles network failure without throwing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('boom') }))
+    const r = await clearRepoCache('ws', 'repo')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('boom')
+  })
+})
+
+describe('postComments', () => {
+  it('returns the posted and failed arrays from the server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ posted: [111], failed: [{ index: 1, error: 'bitbucket down' }] }), {
+          status: 200,
+        }),
+      ),
+    )
+    const r = await postComments('run1', [0, 1])
+    expect(r).toEqual({ posted: [111], failed: [{ index: 1, error: 'bitbucket down' }] })
   })
 })

@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { buildApp } from '../src/app.js'
 import { saveConfig, loadConfig } from '../src/config.js'
+import { RunStore } from '../src/store/runs.js'
+import type { BitbucketLike } from '../src/bitbucket/client.js'
+import type { Finding } from '../src/types.js'
 
 function tempConfig(): string {
   const dir = mkdtempSync(join(tmpdir(), 'prr-app-'))
@@ -183,6 +186,58 @@ describe('app', () => {
     expect(final.model).toBe('race-model')
     expect(final.skillDirs).not.toContain(dirA)
     expect(final.skillDirs).toContain(dirB)
+  })
+
+  it('POST /api/runs/:id/comments saves posted ids incrementally and returns posted/failed on a partial failure', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const run = runStore.create({
+      pr: { workspace: 'ws', repo: 'repo', id: 1 },
+      prTitle: 'T',
+      skills: [],
+      status: 'completed',
+    })
+    const mkFinding = (summary: string): Finding => ({
+      file: 'a.ts',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary,
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'review-code',
+    })
+    run.findings = [mkFinding('first'), mkFinding('second')]
+    runStore.save(run)
+
+    let call = 0
+    const fakeBitbucket: BitbucketLike = {
+      getPullRequest: async () => {
+        throw new Error('not used')
+      },
+      getDiff: async () => {
+        throw new Error('not used')
+      },
+      cloneUrl: () => 'not used',
+      postInlineComment: async () => {
+        call++
+        if (call === 1) return 111
+        throw new Error('bitbucket down')
+      },
+    }
+    const app = buildApp({ configPath: path, bitbucketFactory: () => fakeBitbucket })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${run.id}/comments`,
+      payload: { findingIndexes: [0, 1] },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.posted).toEqual([111])
+    expect(body.failed).toEqual([{ index: 1, error: 'bitbucket down' }])
+    const saved = runStore.get(run.id)!
+    expect(saved.postedCommentIds).toEqual([111])
   })
 
   it('DELETE /api/cache/:workspace/:repo rejects path traversal and deletes nothing outside the cache', async () => {

@@ -10,7 +10,7 @@ import { FindingCard } from '@/components/FindingCard'
 import { ReviewConsole } from '@/components/ReviewConsole'
 import { StatusBadge } from '@/components/StatusBadge'
 
-import { createRun, getRun, postComments, subscribeRun } from '../api.js'
+import { createRun, getRun, postComments, subscribeRun, type PostCommentsResult } from '../api.js'
 import type { Finding, RunEvent, RunRecord, Severity } from '../types.js'
 
 const ORDER: Severity[] = ['high', 'medium', 'low', 'info']
@@ -20,6 +20,33 @@ const SEVERITY_VARIANT: Record<Severity, 'destructive' | 'warning' | 'accent' | 
   medium: 'warning',
   low: 'accent',
   info: 'muted',
+}
+
+/** Mirrors the exact comment body the server posts (see the comments route in app.ts), so
+ * the confirm dialog shows the user precisely what will land on the pull request. */
+export function formatCommentBody(f: Finding): string {
+  return `**[AI review — ${f.severity}/${f.category}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
+}
+
+/**
+ * Interprets a POST /api/runs/:id/comments result against the finding indexes that were
+ * sent. The server processes `sentIndexes` in order and stops at the first failure, so the
+ * first `posted.length` entries of `sentIndexes` are exactly the ones that succeeded — the
+ * rest (the failed one and anything never attempted) stay checked so the user can retry them.
+ */
+export function applyPostResult(
+  sentIndexes: number[],
+  result: PostCommentsResult,
+  checked: Set<number>,
+): { message: string; remainingChecked: Set<number> } {
+  const succeededIndexes = new Set(sentIndexes.slice(0, result.posted.length))
+  const remainingChecked = new Set([...checked].filter((i) => !succeededIndexes.has(i)))
+  const n = result.posted.length
+  let message = `Posted ${n} comment${n === 1 ? '' : 's'}.`
+  if (result.failed.length > 0) {
+    message += ` Failed: ${result.failed.map((f) => `#${f.index} — ${f.error}`).join('; ')}.`
+  }
+  return { message, remainingChecked }
 }
 
 export function groupFindingsBySeverity(
@@ -40,7 +67,7 @@ export function RunView() {
   const [live, setLive] = useState<RunEvent[]>([])
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [confirming, setConfirming] = useState(false)
-  const [posted, setPosted] = useState<number[] | null>(null)
+  const [postMessage, setPostMessage] = useState<string | null>(null)
   const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
@@ -58,7 +85,15 @@ export function RunView() {
               if (!cancelled) setLive((prev) => [...prev, e])
             },
             () => {
-              if (!cancelled) getRun(id).then((r2) => !cancelled && setRun(r2))
+              if (!cancelled) {
+                getRun(id)
+                  .then((r2) => !cancelled && setRun(r2))
+                  .catch(() => {
+                    // The run already finished server-side (that's why onDone fired); a
+                    // transient refetch failure shouldn't blow away the page the user is
+                    // looking at. The live transcript/status already reflect completion.
+                  })
+              }
             },
           )
         }
@@ -105,10 +140,17 @@ export function RunView() {
   }
 
   async function post() {
-    const ids = await postComments(id, [...checked])
-    setPosted(ids)
-    setConfirming(false)
-    setChecked(new Set())
+    const sentIndexes = [...checked]
+    try {
+      const result = await postComments(id, sentIndexes)
+      const { message, remainingChecked } = applyPostResult(sentIndexes, result, checked)
+      setPostMessage(message)
+      setChecked(remainingChecked)
+    } catch (err: any) {
+      setPostMessage(err?.message ?? 'Failed to post comments')
+    } finally {
+      setConfirming(false)
+    }
   }
 
   const selectedItems = run.findings
@@ -184,7 +226,7 @@ export function RunView() {
             ))
           )}
 
-          {posted && <p className="text-success text-sm">Posted {posted.length} comments.</p>}
+          {postMessage && <p className="text-success text-sm">{postMessage}</p>}
         </div>
       )}
 
@@ -202,13 +244,13 @@ export function RunView() {
             <Dialog.Description>These comments will be created on the pull request.</Dialog.Description>
           </Dialog.Header>
           <Dialog.Content>
-            <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
+            <ul className="flex max-h-96 flex-col gap-4 overflow-y-auto">
               {selectedItems.map(({ finding, index }) => (
-                <li key={index} className="text-sm">
-                  <span className="bg-code-surface text-code-foreground font-family-mono rounded px-1.5 py-0.5 text-xs">
+                <li key={index} className="border-muted-200 flex flex-col gap-2 border-b pb-4 text-sm last:border-0 last:pb-0">
+                  <span className="bg-code-surface text-code-foreground font-family-mono w-fit rounded px-1.5 py-0.5 text-xs">
                     {finding.file}:{finding.line}
-                  </span>{' '}
-                  — {finding.summary}
+                  </span>
+                  <pre className="font-family-sans whitespace-pre-wrap text-sm">{formatCommentBody(finding)}</pre>
                 </li>
               ))}
             </ul>
