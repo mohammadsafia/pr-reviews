@@ -23,6 +23,25 @@ export function isSafeCacheSegment(s: string): boolean {
   return SAFE_CACHE_SEGMENT.test(s) && s !== '.' && s !== '..'
 }
 
+/**
+ * Recovers runs left in `running`/`queued` state by a previous process that died or was
+ * restarted mid-run — they can never make progress again since nothing is driving them, and
+ * without this they'd sit forever showing "running" to the UI (and SSE clients waiting on
+ * events that will never fire, see the /events route fix below).
+ */
+export function sweepStrandedRuns(runsDir: string): void {
+  const s = new RunStore(runsDir)
+  for (const summary of s.list()) {
+    if (summary.status !== 'running' && summary.status !== 'queued') continue
+    const run = s.get(summary.id)
+    if (!run) continue
+    run.status = 'failed'
+    run.error = 'Server restarted while this run was in progress'
+    run.finishedAt = new Date().toISOString()
+    s.save(run)
+  }
+}
+
 export function buildApp(
   deps: {
     configPath?: string
@@ -50,6 +69,8 @@ export function buildApp(
   const cfg = (): Config => loadConfig(configPath)
   const store = (): RunStore => new RunStore(cfg().runsDir)
   const skillReposDir = (): string => join(dirname(cfg().cacheDir), 'skill-repos')
+
+  sweepStrandedRuns(cfg().runsDir)
 
   app.get('/api/config', async () => {
     const c = cfg()
@@ -242,7 +263,7 @@ export function buildApp(
     }
     events.on(id, send)
     const run = new RunStore(cfg().runsDir).get(id)
-    if (run && run.status !== 'running' && run.status !== 'queued') send({ kind: 'done' })
+    if (!run || (run.status !== 'running' && run.status !== 'queued')) send({ kind: 'done' })
     req.raw.on('close', () => events.removeListener(id, send))
   })
 

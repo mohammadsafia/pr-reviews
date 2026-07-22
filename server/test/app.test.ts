@@ -280,4 +280,49 @@ describe('app', () => {
     expect(res.json()).toEqual({ ok: true })
     expect(existsSync(repoDir)).toBe(false)
   })
+
+  it('marks stranded running/queued runs as failed on startup', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const runningRun = runStore.create({
+      pr: { workspace: 'ws', repo: 'repo', id: 1 },
+      prTitle: 'Running one',
+      skills: [],
+      status: 'running',
+    })
+    const queuedRun = runStore.create({
+      pr: { workspace: 'ws', repo: 'repo', id: 2 },
+      prTitle: 'Queued one',
+      skills: [],
+      status: 'queued',
+    })
+    const completedRun = runStore.create({
+      pr: { workspace: 'ws', repo: 'repo', id: 3 },
+      prTitle: 'Completed one',
+      skills: [],
+      status: 'completed',
+    })
+
+    buildApp({ configPath: path })
+
+    const freshStore = new RunStore(c.runsDir)
+    const running = freshStore.get(runningRun.id)!
+    const queued = freshStore.get(queuedRun.id)!
+    const completed = freshStore.get(completedRun.id)!
+    expect(running.status).toBe('failed')
+    expect(running.error).toMatch(/restarted/i)
+    expect(running.finishedAt).toBeTruthy()
+    expect(queued.status).toBe('failed')
+    expect(queued.error).toMatch(/restarted/i)
+    // untouched
+    expect(completed.status).toBe('completed')
+    expect(completed.error).toBeUndefined()
+  })
+
+  it('GET /api/runs/:id/events ends promptly with a done event for an unknown run id', async () => {
+    const app = buildApp({ configPath: tempConfig() })
+    const res = await app.inject({ method: 'GET', url: '/api/runs/does-not-exist/events' })
+    expect(res.body).toContain('event: done')
+  })
 })
