@@ -1,0 +1,9 @@
+{
+  "name": "pr-reviewer",
+  "private": true,
+  "scripts": {
+    "build": "cd web && npm run build",
+    "start": "npm run build && cd server && npx tsx src/index.ts",
+    "test": "cd server && npm test && cd ../web && npm test"
+  }
+}
