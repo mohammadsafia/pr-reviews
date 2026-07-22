@@ -242,6 +242,7 @@ function SkillSources({
   const [ghMessage, setGhMessage] = useState<{ text: string; isError: boolean } | null>(null)
   const [rowBusy, setRowBusy] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ dir: string; text: string } | null>(null)
+  const [rowWarning, setRowWarning] = useState<{ dir: string; text: string } | null>(null)
 
   const reloadSkills = () =>
     getSkills()
@@ -291,9 +292,15 @@ function SkillSources({
       setRowBusy(null)
       if (!r.ok) {
         setRowError({ dir, text: r.error ?? 'Failed to remove source' })
+        setRowWarning(null)
         return
       }
       setRowError(null)
+      if (r.warning) {
+        setRowWarning({ dir, text: r.warning })
+      } else {
+        setRowWarning(null)
+      }
       onReloadConfig()
       reloadSkills()
     })
@@ -354,6 +361,7 @@ function SkillSources({
                 </Button>
               </div>
               {rowError?.dir === dir && <p className="text-destructive text-xs">{rowError.text}</p>}
+              {rowWarning?.dir === dir && <p className="text-warning text-xs">{rowWarning.text}</p>}
             </div>
           )
         })}

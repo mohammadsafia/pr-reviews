@@ -75,7 +75,9 @@ export async function addGithubSkillSource(
   }
 }
 
-export async function removeSkillSource(dir: string): Promise<{ ok: boolean; error?: string }> {
+export async function removeSkillSource(
+  dir: string,
+): Promise<{ ok: boolean; warning?: string; error?: string }> {
   try {
     const res = await fetch('/api/skill-sources', {
       method: 'DELETE',
@@ -91,7 +93,13 @@ export async function removeSkillSource(dir: string): Promise<{ ok: boolean; err
       }
       return { ok: false, error: body.error ?? `HTTP ${res.status}` }
     }
-    return { ok: true }
+    let body: any = {}
+    try {
+      body = await res.json()
+    } catch {
+      // ignore non-JSON body
+    }
+    return { ok: true, warning: body.warning as string | undefined }
   } catch (err: any) {
     return { ok: false, error: err?.message ?? 'Network error' }
   }
