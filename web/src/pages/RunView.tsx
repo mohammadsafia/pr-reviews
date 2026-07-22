@@ -180,6 +180,30 @@ export function RunView() {
 
       <ReviewConsole events={live} running={active} startedAt={run.createdAt} finishedAt={run.finishedAt} />
 
+      {run.skillResults.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-muted-foreground text-sm font-medium">Skill runs</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            {run.skillResults.map((r) => (
+              <div key={r.skill} className="flex items-center gap-1.5">
+                <Badge
+                  variant={r.status === 'completed' ? 'success' : 'destructive'}
+                  size="xs"
+                  title={r.status === 'failed' ? r.error : undefined}
+                >
+                  {r.skill} · {r.findingCount}
+                </Badge>
+                {r.status === 'failed' && r.error && (
+                  <span className="text-muted-foreground max-w-64 truncate text-xs" title={r.error}>
+                    {r.error}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {run.status === 'failed' && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />

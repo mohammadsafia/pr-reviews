@@ -41,6 +41,9 @@ function ConsoleBody({ events, running }: { events: RunEvent[]; running: boolean
     >
       {events.map((e, i) => (
         <div key={i} className="flex gap-2">
+          {e.skill && (
+            <span className="text-code-muted shrink-0 select-none">[{e.skill}]</span>
+          )}
           <span className={cn('w-4 shrink-0 select-none text-center', GLYPH_CLASS[e.kind])}>{GLYPH[e.kind]}</span>
           <span className="text-code-foreground min-w-0 flex-1 whitespace-pre-wrap break-words">{e.text}</span>
         </div>
