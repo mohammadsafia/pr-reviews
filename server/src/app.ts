@@ -64,8 +64,9 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     const c = cfg()
     c.skillDirs = c.skillDirs.filter((d) => d !== dir)
     saveConfig(c, configPath)
-    if (skillRepoCloneDir(dir, skillReposDir())) {
-      rmSync(dir, { recursive: true, force: true })
+    const cloneRoot = skillRepoCloneDir(dir, skillReposDir())
+    if (cloneRoot) {
+      rmSync(cloneRoot, { recursive: true, force: true })
     }
     return { ok: true }
   })

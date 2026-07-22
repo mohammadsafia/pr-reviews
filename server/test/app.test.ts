@@ -86,13 +86,15 @@ describe('app', () => {
     expect(loadConfig(path).skillDirs).not.toContain(dir)
   })
 
-  it('DELETE /api/skill-sources removes a skill-repos clone from disk', async () => {
+  it('DELETE /api/skill-sources removes the whole clone root, not just the stored skills/ subdir', async () => {
     const path = tempConfig()
     const app = buildApp({ configPath: path })
     const c = loadConfig(path)
     const reposDir = join(dirname(c.cacheDir), 'skill-repos')
-    const cloneSkillsDir = join(reposDir, 'acme__skills', 'skills')
+    const cloneRoot = join(reposDir, 'acme__skills')
+    const cloneSkillsDir = join(cloneRoot, 'skills')
     mkdirSync(cloneSkillsDir, { recursive: true })
+    mkdirSync(join(cloneRoot, '.git'), { recursive: true })
     c.skillDirs.push(cloneSkillsDir)
     saveConfig(c, path)
     const res = await app.inject({
@@ -101,7 +103,10 @@ describe('app', () => {
       payload: { dir: cloneSkillsDir },
     })
     expect(res.statusCode).toBe(200)
+    // the config entry removed stays exactly the dir that was stored
     expect(loadConfig(path).skillDirs).not.toContain(cloneSkillsDir)
+    // but the whole clone root (including its .git) is gone from disk
+    expect(existsSync(cloneRoot)).toBe(false)
     expect(existsSync(cloneSkillsDir)).toBe(false)
   })
 
