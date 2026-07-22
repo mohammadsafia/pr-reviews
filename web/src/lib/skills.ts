@@ -17,3 +17,16 @@ export function filterSkills(skills: SkillInfo[], query: string, category: strin
     return s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)
   })
 }
+
+/** Mirrors the server's `join(dirname(cacheDir), 'skill-repos')` — the root GitHub clones live under. */
+export function skillReposDir(cacheDir: string): string {
+  const trimmed = cacheDir.replace(/\/+$/, '')
+  const parent = trimmed.slice(0, trimmed.lastIndexOf('/')) || '/'
+  return `${parent}/skill-repos`
+}
+
+/** True when `dir` is a skill source cloned from GitHub (lives under the skill-repos dir). */
+export function isSkillRepoDir(dir: string, cacheDir: string): boolean {
+  const reposDir = skillReposDir(cacheDir)
+  return dir === reposDir || dir.startsWith(`${reposDir}/`)
+}

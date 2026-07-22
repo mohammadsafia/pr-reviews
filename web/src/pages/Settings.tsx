@@ -1,15 +1,23 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Trash2 } from 'lucide-react'
 
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 
-import { clearRepoCache, getConfig, putConfig } from '../api.js'
-import type { Config } from '../types.js'
+import {
+  addGithubSkillSource,
+  clearRepoCache,
+  getConfig,
+  getSkills,
+  putConfig,
+  refreshSkillSource,
+  removeSkillSource,
+} from '../api.js'
+import { isSkillRepoDir } from '../lib/skills.js'
+import type { Config, SkillInfo } from '../types.js'
 
 export function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null)
@@ -115,15 +123,13 @@ export function Settings() {
 
       <Card shadow="sm">
         <Card.Header>
-          <Card.Title>Skills</Card.Title>
+          <Card.Title>Skill sources</Card.Title>
         </Card.Header>
-        <Card.Content className="flex flex-col gap-2 pt-0">
-          <Label htmlFor="skill-dirs">Skill directories (one per line)</Label>
-          <Textarea
-            id="skill-dirs"
-            className="font-family-mono text-sm"
-            value={cfg.skillDirs.join('\n')}
-            onChange={(e) => set({ skillDirs: e.target.value.split('\n').filter(Boolean) })}
+        <Card.Content className="pt-0">
+          <SkillSources
+            cfg={cfg}
+            onAddLocal={(dir) => set({ skillDirs: [...cfg.skillDirs, dir] })}
+            onReloadConfig={() => getConfig().then(setCfg).catch(() => {})}
           />
         </Card.Content>
       </Card>
@@ -211,6 +217,201 @@ function ClearCache() {
           Cache cleared for {ws}/{repo}.
         </p>
       )}
+    </div>
+  )
+}
+
+function SkillSources({
+  cfg,
+  onAddLocal,
+  onReloadConfig,
+}: {
+  cfg: Config
+  onAddLocal: (dir: string) => void
+  onReloadConfig: () => void
+}) {
+  const [skills, setSkills] = useState<SkillInfo[] | null>(null)
+  const [skillsError, setSkillsError] = useState('')
+  const [localDir, setLocalDir] = useState('')
+  const [ghRepo, setGhRepo] = useState('')
+  const [ghBusy, setGhBusy] = useState(false)
+  const [ghMessage, setGhMessage] = useState<{ text: string; isError: boolean } | null>(null)
+  const [rowBusy, setRowBusy] = useState<string | null>(null)
+  const [rowError, setRowError] = useState<{ dir: string; text: string } | null>(null)
+
+  const reloadSkills = () =>
+    getSkills()
+      .then((s) => {
+        setSkills(s)
+        setSkillsError('')
+      })
+      .catch((e) => setSkillsError(e?.message ?? 'Failed to load skill counts'))
+
+  useEffect(() => {
+    reloadSkills()
+  }, [])
+
+  const countFor = (dir: string) => skills?.filter((s) => s.source === dir).length ?? 0
+
+  const handleAddLocal = () => {
+    const dir = localDir.trim()
+    if (!dir || cfg.skillDirs.includes(dir)) return
+    onAddLocal(dir)
+    setLocalDir('')
+  }
+
+  const handleAddGithub = () => {
+    const repo = ghRepo.trim()
+    if (!repo || ghBusy) return
+    setGhBusy(true)
+    setGhMessage(null)
+    addGithubSkillSource(repo).then((r) => {
+      setGhBusy(false)
+      if (r.error) {
+        setGhMessage({ text: r.error, isError: true })
+        return
+      }
+      setGhMessage({
+        text: `Added ${r.skillCount} skill${r.skillCount === 1 ? '' : 's'} from ${r.dir}`,
+        isError: false,
+      })
+      setGhRepo('')
+      onReloadConfig()
+      reloadSkills()
+    })
+  }
+
+  const handleRemove = (dir: string) => {
+    setRowBusy(dir)
+    removeSkillSource(dir).then((r) => {
+      setRowBusy(null)
+      if (!r.ok) {
+        setRowError({ dir, text: r.error ?? 'Failed to remove source' })
+        return
+      }
+      setRowError(null)
+      onReloadConfig()
+      reloadSkills()
+    })
+  }
+
+  const handleRefresh = (dir: string) => {
+    setRowBusy(dir)
+    refreshSkillSource(dir).then((r) => {
+      setRowBusy(null)
+      if (r.error) {
+        setRowError({ dir, text: r.error })
+        return
+      }
+      setRowError(null)
+      reloadSkills()
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        {cfg.skillDirs.length === 0 && (
+          <p className="text-muted-foreground text-sm">No skill sources configured.</p>
+        )}
+        {cfg.skillDirs.map((dir) => {
+          const repoBacked = isSkillRepoDir(dir, cfg.cacheDir)
+          const count = countFor(dir)
+          return (
+            <div key={dir} className="border-muted-200 flex flex-col gap-1 rounded-md border px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="font-family-mono min-w-0 flex-1 truncate text-sm" title={dir}>
+                  {dir}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  {skills ? `${count} skill${count === 1 ? '' : 's'}` : '…'}
+                </span>
+                {repoBacked && (
+                  <Button
+                    type="button"
+                    variant="ghost-muted"
+                    size="icon-sm"
+                    aria-label={`Refresh ${dir}`}
+                    disabled={rowBusy === dir}
+                    onClick={() => handleRefresh(dir)}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost-destructive"
+                  size="icon-sm"
+                  aria-label={`Remove ${dir}`}
+                  disabled={rowBusy === dir}
+                  onClick={() => handleRemove(dir)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              {rowError?.dir === dir && <p className="text-destructive text-xs">{rowError.text}</p>}
+            </div>
+          )
+        })}
+        {skillsError && <p className="text-destructive text-xs">{skillsError}</p>}
+      </div>
+
+      <div className="border-muted-200 flex flex-col gap-2 border-t pt-4">
+        <Label htmlFor="local-skill-dir">Add local directory</Label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            id="local-skill-dir"
+            placeholder="/path/to/skills"
+            value={localDir}
+            onChange={(e) => setLocalDir(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline-muted"
+            disabled={!localDir.trim()}
+            onClick={handleAddLocal}
+          >
+            Add
+          </Button>
+        </div>
+      </div>
+
+      <div className="border-muted-200 flex flex-col gap-2 border-t pt-4">
+        <Label htmlFor="github-skill-repo">Add from GitHub</Label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            id="github-skill-repo"
+            placeholder="owner/repo or GitHub URL"
+            value={ghRepo}
+            onChange={(e) => setGhRepo(e.target.value)}
+          />
+          <Button
+            type="button"
+            variant="outline-muted"
+            disabled={ghBusy || !ghRepo.trim()}
+            onClick={handleAddGithub}
+          >
+            {ghBusy ? 'Adding…' : 'Add'}
+          </Button>
+        </div>
+        {ghMessage && (
+          <p className={ghMessage.isError ? 'text-destructive text-xs' : 'text-success text-xs'}>
+            {ghMessage.text}
+          </p>
+        )}
+        <p className="text-muted-foreground text-xs">
+          <a
+            href="https://skills.sh"
+            target="_blank"
+            rel="noreferrer"
+            className="hover:no-underline underline"
+          >
+            Find skills on skills.sh
+          </a>
+          {' — '}
+          third-party skills are injected into the review agent's prompt; review sources before adding.
+        </p>
+      </div>
     </div>
   )
 }

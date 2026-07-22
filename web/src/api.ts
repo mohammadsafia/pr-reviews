@@ -53,6 +53,72 @@ export const postComments = (id: string, findingIndexes: number[]) =>
 export const clearRepoCache = (workspace: string, repo: string) =>
   fetch(`/api/cache/${workspace}/${repo}`, { method: 'DELETE' }).then(() => undefined)
 
+export async function addGithubSkillSource(
+  repo: string,
+): Promise<{ dir?: string; skillCount?: number; error?: string }> {
+  try {
+    const res = await fetch('/api/skill-sources/github', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repo }),
+    })
+    let body: any = {}
+    try {
+      body = await res.json()
+    } catch {
+      body = { error: `Server returned a non-JSON response (HTTP ${res.status})` }
+    }
+    if (!res.ok) return { error: body.error ?? `HTTP ${res.status}` }
+    return body
+  } catch (err: any) {
+    return { error: err?.message ?? 'Network error' }
+  }
+}
+
+export async function removeSkillSource(dir: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/skill-sources', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    })
+    if (!res.ok) {
+      let body: any = {}
+      try {
+        body = await res.json()
+      } catch {
+        // ignore non-JSON body
+      }
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` }
+    }
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? 'Network error' }
+  }
+}
+
+export async function refreshSkillSource(
+  dir: string,
+): Promise<{ skillCount?: number; error?: string }> {
+  try {
+    const res = await fetch('/api/skill-sources/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir }),
+    })
+    let body: any = {}
+    try {
+      body = await res.json()
+    } catch {
+      body = { error: `Server returned a non-JSON response (HTTP ${res.status})` }
+    }
+    if (!res.ok) return { error: body.error ?? `HTTP ${res.status}` }
+    return body
+  } catch (err: any) {
+    return { error: err?.message ?? 'Network error' }
+  }
+}
+
 export function subscribeRun(
   id: string,
   onEvent: (e: RunEvent) => void,

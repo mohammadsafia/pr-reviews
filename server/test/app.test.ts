@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { buildApp } from '../src/app.js'
 import { saveConfig, loadConfig } from '../src/config.js'
 
@@ -63,5 +63,55 @@ describe('app', () => {
     const app = buildApp({ configPath: tempConfig() })
     const res = await app.inject({ method: 'GET', url: '/api/runs/nope' })
     expect(res.statusCode).toBe(404)
+  })
+
+  it('POST /api/skill-sources/github rejects an invalid repo with 400', async () => {
+    const app = buildApp({ configPath: tempConfig() })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/skill-sources/github',
+      payload: { repo: 'not-a-repo' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/Invalid GitHub repo/)
+  })
+
+  it('DELETE /api/skill-sources removes the entry from config skillDirs', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const dir = loadConfig(path).skillDirs[0]
+    const res = await app.inject({ method: 'DELETE', url: '/api/skill-sources', payload: { dir } })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ ok: true })
+    expect(loadConfig(path).skillDirs).not.toContain(dir)
+  })
+
+  it('DELETE /api/skill-sources removes a skill-repos clone from disk', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const c = loadConfig(path)
+    const reposDir = join(dirname(c.cacheDir), 'skill-repos')
+    const cloneSkillsDir = join(reposDir, 'acme__skills', 'skills')
+    mkdirSync(cloneSkillsDir, { recursive: true })
+    c.skillDirs.push(cloneSkillsDir)
+    saveConfig(c, path)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/skill-sources',
+      payload: { dir: cloneSkillsDir },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(loadConfig(path).skillDirs).not.toContain(cloneSkillsDir)
+    expect(existsSync(cloneSkillsDir)).toBe(false)
+  })
+
+  it('POST /api/skill-sources/refresh 400s for a dir that is not GitHub-backed', async () => {
+    const app = buildApp({ configPath: tempConfig() })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/skill-sources/refresh',
+      payload: { dir: '/some/local/skills' },
+    })
+    expect(res.statusCode).toBe(400)
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { inferCategory, filterSkills } from '../src/lib/skills.js'
+import { inferCategory, filterSkills, isSkillRepoDir, skillReposDir } from '../src/lib/skills.js'
 import type { SkillInfo } from '../src/types.js'
 
 function skill(over: Partial<SkillInfo>): SkillInfo {
@@ -78,5 +78,31 @@ describe('filterSkills', () => {
   it('combines category and query filters', () => {
     expect(filterSkills(skills, 'standards', 'review').map((s) => s.name)).toEqual(['review-code'])
     expect(filterSkills(skills, 'standards', 'audit')).toEqual([])
+  })
+})
+
+describe('skillReposDir', () => {
+  it('replaces the last path segment of cacheDir with skill-repos', () => {
+    expect(skillReposDir('/home/x/.pr-reviewer/repos')).toBe('/home/x/.pr-reviewer/skill-repos')
+  })
+
+  it('ignores a trailing slash on cacheDir', () => {
+    expect(skillReposDir('/home/x/.pr-reviewer/repos/')).toBe('/home/x/.pr-reviewer/skill-repos')
+  })
+})
+
+describe('isSkillRepoDir', () => {
+  const cacheDir = '/home/x/.pr-reviewer/repos'
+
+  it('is true for a clone directly under skill-repos', () => {
+    expect(isSkillRepoDir('/home/x/.pr-reviewer/skill-repos/acme__skills/skills', cacheDir)).toBe(true)
+  })
+
+  it('is false for an unrelated local directory', () => {
+    expect(isSkillRepoDir('/home/x/.claude/skills', cacheDir)).toBe(false)
+  })
+
+  it('is false for a dir that merely shares the skill-repos prefix as text', () => {
+    expect(isSkillRepoDir('/home/x/.pr-reviewer/skill-repos-other/x', cacheDir)).toBe(false)
   })
 })
