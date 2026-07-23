@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
-import { scanSkillDirs } from './scanner.js'
+import { containsSkillMd, scanSkillDirs } from './scanner.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -45,18 +45,12 @@ export function parseGithubRepo(input: string): { owner: string; repo: string } 
   throw new Error(`Invalid GitHub repo: ${JSON.stringify(input)}`)
 }
 
-function hasSkillSubdirs(dir: string): boolean {
-  if (!existsSync(dir)) return false
-  return readdirSync(dir, { withFileTypes: true }).some(
-    (e) => e.isDirectory() && existsSync(join(dir, e.name, 'SKILL.md')),
-  )
-}
-
-/** Locates the directory whose immediate subdirectories are skills (contain SKILL.md). */
+/** Locates the broadest root under which skills (SKILL.md, at any depth) live: prefers a
+ * `skills/` subdirectory when it qualifies, otherwise the clone root itself. */
 export function findSkillRoot(cloneDir: string): string {
   const skillsSub = join(cloneDir, 'skills')
-  if (hasSkillSubdirs(skillsSub)) return skillsSub
-  if (hasSkillSubdirs(cloneDir)) return cloneDir
+  if (existsSync(skillsSub) && containsSkillMd(skillsSub)) return skillsSub
+  if (containsSkillMd(cloneDir)) return cloneDir
   throw new Error(`No skills found in ${cloneDir}`)
 }
 

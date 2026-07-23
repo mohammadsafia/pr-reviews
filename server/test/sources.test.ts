@@ -56,6 +56,13 @@ describe('findSkillRoot', () => {
     expect(findSkillRoot(root)).toBe(join(root, 'skills'))
   })
 
+  it('finds a nested/categorized skills/ subdirectory (skills/<category>/<skill>/SKILL.md)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'prr-clone-'))
+    mkdirSync(join(root, 'skills', 'cat', 'skill'), { recursive: true })
+    writeFileSync(join(root, 'skills', 'cat', 'skill', 'SKILL.md'), '---\nname: skill\n---\n')
+    expect(findSkillRoot(root)).toBe(join(root, 'skills'))
+  })
+
   it('falls back to the clone root when it directly qualifies', () => {
     const root = mkdtempSync(join(tmpdir(), 'prr-clone-'))
     mkdirSync(join(root, 'foo'), { recursive: true })
