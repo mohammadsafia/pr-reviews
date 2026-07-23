@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { SkillInfo } from '../types.js'
 
@@ -30,7 +30,15 @@ function walkForSkillDirs(dir: string, onSkillDir: (skillDir: string) => void): 
     onSkillDir(dir)
     return
   }
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    // Unreadable dir (permissions, race with deletion, etc.) — skip it rather than
+    // aborting the whole scan.
+    return
+  }
+  for (const entry of entries) {
     if (!entry.isDirectory()) continue
     if (isIgnoredDirName(entry.name)) continue
     walkForSkillDirs(join(dir, entry.name), onSkillDir)
@@ -50,22 +58,18 @@ export function scanSkillDirs(dirs: string[]): SkillInfo[] {
   const skills: SkillInfo[] = []
   for (const root of dirs) {
     if (!existsSync(root)) continue
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue
-      if (isIgnoredDirName(entry.name)) continue
-      walkForSkillDirs(join(root, entry.name), (skillDir) => {
-        const skillFile = join(skillDir, 'SKILL.md')
-        const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'))
-        const skillName = basename(skillDir)
-        skills.push({
-          name: fm.name ?? skillName,
-          description: fm.description ?? '',
-          dir: skillDir,
-          source: root,
-          ...(fm.category ? { category: fm.category } : {}),
-        })
+    walkForSkillDirs(root, (skillDir) => {
+      const skillFile = join(skillDir, 'SKILL.md')
+      const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'))
+      const skillName = basename(skillDir)
+      skills.push({
+        name: fm.name ?? skillName,
+        description: fm.description ?? '',
+        dir: skillDir,
+        source: root,
+        ...(fm.category ? { category: fm.category } : {}),
       })
-    }
+    })
   }
   return skills
 }

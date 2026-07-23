@@ -9,6 +9,7 @@ import {
   refreshGithubSource,
   type GitFn,
 } from '../src/skills/sources.js'
+import { scanSkillDirs } from '../src/skills/scanner.js'
 
 describe('parseGithubRepo', () => {
   it('accepts owner/repo', () => {
@@ -75,6 +76,14 @@ describe('findSkillRoot', () => {
     mkdirSync(join(root, 'not-a-skill'), { recursive: true })
     writeFileSync(join(root, 'not-a-skill', 'README.md'), 'nope')
     expect(() => findSkillRoot(root)).toThrow(/^No skills found/)
+  })
+
+  it('agrees with scanSkillDirs: a root that directly holds SKILL.md yields exactly one skill, not a silent 0', () => {
+    const root = mkdtempSync(join(tmpdir(), 'prr-clone-'))
+    writeFileSync(join(root, 'SKILL.md'), '---\nname: solo\n---\n')
+    const foundRoot = findSkillRoot(root)
+    expect(foundRoot).toBe(root)
+    expect(scanSkillDirs([foundRoot])).toHaveLength(1)
   })
 
   it('throws when the clone dir does not exist at all', () => {

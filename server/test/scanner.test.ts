@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scanSkillDirs, readSkillContent } from '../src/skills/scanner.js'
@@ -80,6 +80,51 @@ describe('scanSkillDirs', () => {
   it('leaves category undefined when frontmatter omits it', () => {
     const rc = scanSkillDirs([root]).find((s) => s.name === 'review-code')!
     expect(rc.category).toBeUndefined()
+  })
+})
+
+describe('scanSkillDirs (root itself is a skill)', () => {
+  it('treats a root whose own dir directly has SKILL.md as exactly one skill', () => {
+    const singleSkillRoot = mkdtempSync(join(tmpdir(), 'prr-skills-single-'))
+    writeFileSync(
+      join(singleSkillRoot, 'SKILL.md'),
+      '---\nname: single-skill\ndescription: A repo that is one skill\n---\n\n# Body\n',
+    )
+    const skills = scanSkillDirs([singleSkillRoot])
+    expect(skills).toHaveLength(1)
+    expect(skills[0].dir).toBe(singleSkillRoot)
+    expect(skills[0].source).toBe(singleSkillRoot)
+    expect(skills[0].name).toBe('single-skill')
+  })
+})
+
+describe('scanSkillDirs (unreadable subdirectory)', () => {
+  let unreadableRoot: string
+  let lockedDir: string
+
+  beforeAll(() => {
+    unreadableRoot = mkdtempSync(join(tmpdir(), 'prr-skills-unreadable-'))
+    mkdirSync(join(unreadableRoot, 'good-skill'))
+    writeFileSync(
+      join(unreadableRoot, 'good-skill', 'SKILL.md'),
+      '---\nname: good-skill\ndescription: Still found\n---\n\n# Body\n',
+    )
+    lockedDir = join(unreadableRoot, 'locked')
+    mkdirSync(lockedDir)
+    writeFileSync(join(lockedDir, 'SKILL.md'), '---\nname: hidden\n---\n')
+    chmodSync(lockedDir, 0o000)
+  })
+
+  afterAll(() => {
+    // Restore permissions so the OS temp-dir cleanup (or test runner teardown) can remove it.
+    chmodSync(lockedDir, 0o755)
+  })
+
+  it('skips a directory it cannot read instead of aborting the whole scan', () => {
+    const skills = scanSkillDirs([unreadableRoot])
+    const names = skills.map((s) => s.name)
+    expect(names).toContain('good-skill')
+    expect(names).not.toContain('hidden')
   })
 })
 
