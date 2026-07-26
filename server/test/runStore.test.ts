@@ -71,4 +71,23 @@ describe('RunStore', () => {
     expect(files.some((f) => f.endsWith('.tmp'))).toBe(false)
     expect(store.get(run.id)?.status).toBe('completed')
   })
+
+  it('normalizes a legacy run with skill:string and no verdict on load', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-runs-'))
+    const store = new RunStore(dir)
+    const legacy = {
+      id: 'legacy1', pr: { provider: 'bitbucket', workspace: 'w', repo: 'r', id: 1 },
+      prTitle: 'T', skills: ['review-code'], status: 'completed',
+      createdAt: new Date().toISOString(), transcript: [], postedCommentIds: [],
+      skillResults: [], findings: [
+        { file: 'a.ts', line: 1, severity: 'low', category: 'style',
+          summary: 's', detail: 'd', suggestion: 'x', skill: 'review-code' },
+      ],
+    }
+    writeFileSync(join(dir, 'legacy1.json'), JSON.stringify(legacy))
+    const loaded = store.get('legacy1')!
+    expect(loaded.findings[0].skills).toEqual(['review-code'])
+    expect(loaded.findings[0].verdict).toBe('confirmed')
+    expect(loaded.verify).toBe(true)
+  })
 })

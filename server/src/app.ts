@@ -200,6 +200,7 @@ export function buildApp(
       prTitle: meta.title,
       skills: body.skills,
       focus: body.focus,
+      verify: true,
       status: 'queued',
     })
     runQueue.push(() => executeRun(run.id, { pr, meta, diff, body }))
@@ -264,8 +265,8 @@ export function buildApp(
               agentQuery,
             )
             // Force the attribution rather than trusting whatever the model put in the
-            // finding's own "skill" field — guarantees correct grouping even if it mislabels.
-            for (const f of findings) f.skill = unit.name
+            // finding's own "skills" field — guarantees correct grouping even if it mislabels.
+            for (const f of findings) f.skills = [unit.name]
             return {
               result: { skill: unit.name, status: 'completed', findingCount: findings.length },
               findings,

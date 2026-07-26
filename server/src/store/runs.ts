@@ -3,11 +3,28 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { join } from 'node:path'
 import type { RunRecord } from '../types.js'
 
+/** Migrates a run parsed from disk into the current shape: pre-verify runs default
+ * `verify` to true (verification didn't exist, so treat legacy runs as if it ran), and
+ * pre-skills[] findings had a single `skill: string` field which is renamed to `skills: []`
+ * with a defaulted `verdict` (verification didn't exist, so treat them as confirmed). */
+export function normalizeRun(raw: any): RunRecord {
+  const run = raw as RunRecord
+  if (run.verify === undefined) run.verify = true
+  if (Array.isArray(run.findings)) {
+    for (const f of run.findings as any[]) {
+      if (f.skills === undefined) f.skills = f.skill !== undefined ? [f.skill] : []
+      delete f.skill
+      if (f.verdict === undefined) f.verdict = 'confirmed'
+    }
+  }
+  return run
+}
+
 /** Parses a run record file, returning undefined (instead of throwing) if it's corrupt —
  * one bad file should never take down get()/list() for every other run. */
 function readRun(path: string): RunRecord | undefined {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as RunRecord
+    return normalizeRun(JSON.parse(readFileSync(path, 'utf8')))
   } catch {
     return undefined
   }

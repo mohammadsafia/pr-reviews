@@ -26,7 +26,9 @@ export interface Finding {
   summary: string
   detail: string
   suggestion: string
-  skill: string
+  skills: string[]
+  verdict: 'confirmed' | 'unverified'
+  verifierReason?: string
 }
 
 export type RunStatus = 'running' | 'queued' | 'completed' | 'failed'
@@ -55,6 +57,7 @@ export interface RunRecord {
   prTitle: string
   skills: string[]
   focus?: string
+  verify: boolean
   status: RunStatus
   createdAt: string
   finishedAt?: string

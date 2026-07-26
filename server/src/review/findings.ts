@@ -39,7 +39,9 @@ export function extractFindings(text: string): Finding[] {
   if (!Array.isArray(arr)) throw new FindingsParseError()
   return arr.flatMap((item) => {
     const parsed = FindingSchema.safeParse(item)
-    return parsed.success ? [parsed.data] : []
+    if (!parsed.success) return []
+    const { skill, ...rest } = parsed.data
+    return [{ ...rest, skills: [skill], verdict: 'confirmed' as const }]
   })
 }
 

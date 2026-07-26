@@ -152,9 +152,10 @@ describe('run pipeline integration', () => {
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
     // No skills selected -> the synthetic "general" unit runs, and executeRun force-attributes
-    // finding.skill = unit.name regardless of what the (fixture) finding claims, so it comes
-    // back as "general" rather than the "review-code" the fixture data sets.
-    expect(run.findings).toEqual([{ ...finding, skill: 'general' }])
+    // finding.skills = [unit.name] regardless of what the (fixture) finding claims, so it
+    // comes back as ["general"] rather than the "review-code" the fixture data sets.
+    const { skill: _skill1, ...findingRest } = finding
+    expect(run.findings).toEqual([{ ...findingRest, skills: ['general'], verdict: 'confirmed' }])
     expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 
@@ -224,10 +225,12 @@ describe('run pipeline integration', () => {
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
     // Force-attribution overrides whatever skill label the agent claimed.
+    const { skill: _skillA, ...findingARest } = findingA
+    const { skill: _skillB, ...findingBRest } = findingB
     expect(run.findings).toEqual(
       expect.arrayContaining([
-        { ...findingA, skill: 'skill-a' },
-        { ...findingB, skill: 'skill-b' },
+        { ...findingARest, skills: ['skill-a'], verdict: 'confirmed' },
+        { ...findingBRest, skills: ['skill-b'], verdict: 'confirmed' },
       ]),
     )
     expect(run.findings).toHaveLength(2)
@@ -270,7 +273,8 @@ describe('run pipeline integration', () => {
     const { id } = createRes.json()
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
-    expect(run.findings).toEqual([findingA])
+    const { skill: _skillA2, ...findingARest2 } = findingA
+    expect(run.findings).toEqual([{ ...findingARest2, skills: ['skill-a'], verdict: 'confirmed' }])
     const bySkill = Object.fromEntries(run.skillResults.map((r: any) => [r.skill, r]))
     expect(bySkill['skill-a']).toEqual({ skill: 'skill-a', status: 'completed', findingCount: 1 })
     expect(bySkill['skill-b'].status).toBe('failed')
@@ -329,7 +333,8 @@ describe('run pipeline integration', () => {
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
     expect(run.pr).toEqual({ provider: 'github', workspace: 'ws', repo: 'repo', id: 1 })
-    expect(run.findings).toEqual([{ ...finding, skill: 'general' }])
+    const { skill: _skill2, ...findingRest2 } = finding
+    expect(run.findings).toEqual([{ ...findingRest2, skills: ['general'], verdict: 'confirmed' }])
     expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 })
