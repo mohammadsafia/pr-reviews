@@ -16,6 +16,20 @@ function fakeAgent(resultText: string, ok = true) {
   }
 }
 
+/** Fake agent that returns a different result on each successive invocation (mirroring
+ * runReview's reformat-retry pattern: first call unparseable, second call recoverable) and
+ * tracks how many times it was invoked. */
+function fakeAgentSequence(...resultTexts: string[]) {
+  const state = { calls: 0 }
+  const agent = async function* () {
+    const text = resultTexts[Math.min(state.calls, resultTexts.length - 1)]
+    state.calls++
+    yield { type: 'assistant' as const, text: 'checking' }
+    yield { type: 'result' as const, ok: true, text }
+  }
+  return { agent, state }
+}
+
 describe('verifyFinding', () => {
   it('parses a confirmed verdict', async () => {
     const v = await verifyFinding(finding, ctx, () => {}, fakeAgent('```json\n{"verdict":"confirmed","reason":"real"}\n```'))
@@ -36,10 +50,23 @@ describe('verifyFinding', () => {
     expect(events.some((e) => e.kind === 'error')).toBe(true)
   })
 
-  it('fails open when the result is unparseable after retry', async () => {
-    const v = await verifyFinding(finding, ctx, () => {}, fakeAgent('no json here'))
+  it('fails open to confirmed when both the initial attempt and the reformat retry are unparseable', async () => {
+    const { agent, state } = fakeAgentSequence('no json here', 'still no json')
+    const v = await verifyFinding(finding, ctx, () => {}, agent)
     expect(v.verdict).toBe('confirmed')
     expect(v.reason).toMatch(/verifier failed/)
+    expect(state.calls).toBe(2)
+  })
+
+  it('reformat retry recovers a valid verdict after an unparseable first attempt', async () => {
+    const { agent, state } = fakeAgentSequence(
+      'this is just prose, not json',
+      '```json\n{"verdict":"unverified","reason":"line moved"}\n```',
+    )
+    const v = await verifyFinding(finding, ctx, () => {}, agent)
+    expect(v.verdict).toBe('unverified')
+    expect(v.reason).toBe('line moved')
+    expect(state.calls).toBe(2)
   })
 
   it('tags emitted events with skill "verify"', async () => {

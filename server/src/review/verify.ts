@@ -49,6 +49,35 @@ function extractVerdict(text: string): { verdict: 'confirmed' | 'unverified'; re
   }
 }
 
+const VERDICT_REFORMAT_PROMPT =
+  'Your previous reply did not end with a valid ```json verdict object. ' +
+  'Reply now with ONLY the ```json object {"verdict":"confirmed"|"unverified","reason":"..."}, nothing else. ' +
+  'Previous reply:\n\n'
+
+/** Runs one agent turn and returns its final result text (the resolved text from the
+ * `result` message), mirroring runner.ts's runOnce. Throws if the agent errors or never
+ * produces a result. */
+async function runVerifyTurn(
+  prompt: string,
+  opts: { cwd: string; model: string },
+  emit: (e: RunEvent) => void,
+  agentQuery: AgentQuery,
+): Promise<string> {
+  let resultText: string | undefined
+  for await (const msg of agentQuery(prompt, opts)) {
+    const at = new Date().toISOString()
+    if (msg.type === 'assistant') {
+      if (msg.text) emit({ kind: 'text', text: msg.text, at })
+      if (msg.tool) emit({ kind: 'tool', text: msg.tool, at })
+    } else {
+      if (!msg.ok) throw new Error(msg.text)
+      resultText = msg.text
+    }
+  }
+  if (resultText === undefined) throw new Error('Agent run produced no result message.')
+  return resultText
+}
+
 export async function verifyFinding(
   finding: Finding,
   ctx: { meta: PrMeta; diff: string; cwd: string; model: string },
@@ -58,20 +87,14 @@ export async function verifyFinding(
   const emit = (e: RunEvent) => onEvent({ ...e, skill: 'verify' })
   const opts = { cwd: ctx.cwd, model: ctx.model }
   try {
-    let resultText: string | undefined
-    for await (const msg of agentQuery(buildVerifyPrompt(finding, ctx.meta, ctx.diff), opts)) {
-      const at = new Date().toISOString()
-      if (msg.type === 'assistant') {
-        if (msg.text) emit({ kind: 'text', text: msg.text, at })
-        if (msg.tool) emit({ kind: 'tool', text: msg.tool, at })
-      } else {
-        if (!msg.ok) throw new Error(msg.text)
-        resultText = msg.text
-      }
-    }
-    const parsed = resultText !== undefined ? extractVerdict(resultText) : undefined
-    if (!parsed) throw new Error('unparseable verdict')
-    return parsed
+    const text = await runVerifyTurn(buildVerifyPrompt(finding, ctx.meta, ctx.diff), opts, emit, agentQuery)
+    const parsed = extractVerdict(text)
+    if (parsed) return parsed
+    // One reformat retry, mirroring runReview's REFORMAT_PROMPT pattern, before failing open.
+    const retryText = await runVerifyTurn(VERDICT_REFORMAT_PROMPT + text, opts, emit, agentQuery)
+    const retryParsed = extractVerdict(retryText)
+    if (!retryParsed) throw new Error('unparseable verdict')
+    return retryParsed
   } catch (err: any) {
     emit({ kind: 'error', text: `verifier failed: ${err.message}`, at: new Date().toISOString() })
     return { verdict: 'confirmed', reason: `verifier failed: ${err.message}` }
