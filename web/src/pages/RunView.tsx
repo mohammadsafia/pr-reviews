@@ -138,6 +138,7 @@ export function RunView() {
       url,
       skills: run.skills,
       focus: run.focus,
+      verify: run.verify,
       force: true,
     })
     if (res.id) navigate(`/runs/${res.id}`)
@@ -207,6 +208,17 @@ export function RunView() {
           </div>
         </div>
       )}
+
+      {run.status === 'completed' &&
+        (run.verify ? (
+          <p className="text-muted-foreground text-sm">
+            {run.findings.length} findings ·{' '}
+            {run.findings.filter((f) => f.verdict === 'confirmed').length} confirmed ·{' '}
+            {run.findings.filter((f) => f.verdict === 'unverified').length} unverified
+          </p>
+        ) : (
+          <p className="text-muted-foreground text-sm">{run.findings.length} findings · verification skipped</p>
+        ))}
 
       {run.status === 'failed' && (
         <Alert variant="destructive">

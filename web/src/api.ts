@@ -21,6 +21,7 @@ export async function createRun(input: {
   url: string
   skills: string[]
   focus?: string
+  verify?: boolean
   force?: boolean
 }): Promise<{ id?: string; error?: string; diffLines?: number; status: number }> {
   try {

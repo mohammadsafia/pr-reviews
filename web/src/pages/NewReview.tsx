@@ -26,6 +26,7 @@ export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[
 }
 
 const LAST_SKILLS_KEY = 'pr-reviewer.lastSkills'
+const VERIFY_KEY = 'pr-reviewer.verify'
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -50,6 +51,9 @@ export function NewReview() {
   )
   const [url, setUrl] = useState('')
   const [focus, setFocus] = useState('')
+  const [verify, setVerify] = useState<boolean>(
+    () => JSON.parse(localStorage.getItem(VERIFY_KEY) ?? 'true'),
+  )
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [error, setError] = useState('')
   const [oversized, setOversized] = useState<number | null>(null)
@@ -101,7 +105,7 @@ export function NewReview() {
     setError('')
     setOversized(null)
     try {
-      const res = await createRun({ url, skills: [...selected], focus: focus || undefined, force })
+      const res = await createRun({ url, skills: [...selected], focus: focus || undefined, verify, force })
       if (res.id) navigate(`/runs/${res.id}`)
       else if (res.status === 409) setOversized(res.diffLines ?? 0)
       else setError(res.error ?? 'Failed to start run')
@@ -279,6 +283,19 @@ export function NewReview() {
           onChange={(e) => setFocus(e.target.value)}
         />
       </div>
+
+      <label className="flex w-fit items-start gap-2">
+        <Checkbox
+          checked={verify}
+          onCheckedChange={(v) => {
+            const nv = v === true
+            setVerify(nv)
+            localStorage.setItem(VERIFY_KEY, JSON.stringify(nv))
+          }}
+          className="mt-0.5 shrink-0"
+        />
+        <span className="text-sm">Verify findings (double-check each with a second agent)</span>
+      </label>
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Recent runs</h2>

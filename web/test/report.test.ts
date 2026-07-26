@@ -10,7 +10,8 @@ const f = (severity: Finding['severity'], file: string): Finding => ({
   summary: 's',
   detail: 'd',
   suggestion: 'x',
-  skill: 'review-code',
+  skills: ['review-code'],
+  verdict: 'confirmed',
 })
 
 describe('groupFindingsBySeverity', () => {
@@ -32,7 +33,8 @@ describe('formatCommentBody', () => {
       summary: 'SQL injection',
       detail: 'User input is concatenated into the query string.',
       suggestion: 'Use parameterized queries.',
-      skill: 'review-code',
+      skills: ['review-code'],
+      verdict: 'confirmed',
     }
     expect(formatCommentBody(finding)).toBe(
       '**[AI review — high/security]** SQL injection\n\n' +
