@@ -29,6 +29,10 @@ A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claud
 
 5. Paste a Bitbucket Cloud PR URL on the Home page, select review skills, and Run Review
 
+## Review Quality
+
+Each review run deduplicates findings across selected skills — when multiple skills flag the same issue on the same file and line, they merge into a single finding credited to all reporters. By default, each deduped finding is then verified by a second adversarial agent that re-reads the code and tries to refute it. Unverified findings are shown in the report with a "unverified" badge and a one-line reason — they are never hidden. A "Verify findings" checkbox on the New Review screen lets you toggle verification per run; disabling it makes runs faster and cheaper. Cost note: with verification enabled, expect one additional subagent session per deduped finding.
+
 ## Data Locations
 
 - **Config:** `~/.pr-reviewer/config.json` (0600 permissions—credentials)

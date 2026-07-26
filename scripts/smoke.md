@@ -11,3 +11,12 @@
    checkout…" completes in ~1s).
 7. Failure path: put a wrong token in Settings, submit a run → the run view shows
    a 401 message pointing at Settings.
+8. **Verify findings ON** (default): Home → paste a PR URL, select review skills,
+   confirm "Verify findings" checkbox is checked, Run Review. After the run completes,
+   inspect the report header: it should show a summary line like "N confirmed · M unverified".
+   Any unverified finding in the list should display a "unverified" badge with a one-line
+   reason explaining why verification failed.
+9. **Verify findings OFF**: Home → paste the same (or different) PR URL, select review
+   skills, uncheck "Verify findings", Run Review. After the run completes, the report
+   should show a "verification skipped" note in the header. All findings should render
+   without unverified badges; none should carry a verification badge or reason.
