@@ -367,7 +367,7 @@ export function buildApp(
     for (const i of findingIndexes) {
       const f = run.findings[i]
       if (!f) continue
-      const text = `**[AI review — ${f.severity}/${f.category}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
+      const text = `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
       try {
         const commentId = await client.postInlineComment(run.pr, { path: f.file, line: f.line, text })
         posted.push(commentId)

@@ -37,7 +37,7 @@ describe('formatCommentBody', () => {
       verdict: 'confirmed',
     }
     expect(formatCommentBody(finding)).toBe(
-      '**[AI review — high/security]** SQL injection\n\n' +
+      '**[AI review — high/security · review-code]** SQL injection\n\n' +
         'User input is concatenated into the query string.\n\n' +
         '**Suggestion:** Use parameterized queries.',
     )

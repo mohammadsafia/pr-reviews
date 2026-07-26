@@ -25,7 +25,7 @@ const SEVERITY_VARIANT: Record<Severity, 'destructive' | 'warning' | 'accent' | 
 /** Mirrors the exact comment body the server posts (see the comments route in app.ts), so
  * the confirm dialog shows the user precisely what will land on the pull request. */
 export function formatCommentBody(f: Finding): string {
-  return `**[AI review — ${f.severity}/${f.category}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
+  return `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
 }
 
 /**
