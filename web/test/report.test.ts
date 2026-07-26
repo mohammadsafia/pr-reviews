@@ -1,8 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { applyPostResult, formatCommentBody, groupFindingsBySeverity } from '../src/pages/RunView.js'
+import {
+  applyPostResult,
+  formatCommentBody,
+  groupFindingsBySeverity,
+  partitionFindingsByVerdict,
+} from '../src/pages/RunView.js'
 import type { Finding } from '../src/types.js'
 
-const f = (severity: Finding['severity'], file: string): Finding => ({
+const f = (severity: Finding['severity'], file: string, verdict: Finding['verdict'] = 'confirmed'): Finding => ({
   file,
   line: 1,
   severity,
@@ -11,7 +16,7 @@ const f = (severity: Finding['severity'], file: string): Finding => ({
   detail: 'd',
   suggestion: 'x',
   skills: ['review-code'],
-  verdict: 'confirmed',
+  verdict,
 })
 
 describe('groupFindingsBySeverity', () => {
@@ -41,6 +46,23 @@ describe('formatCommentBody', () => {
         'User input is concatenated into the query string.\n\n' +
         '**Suggestion:** Use parameterized queries.',
     )
+  })
+})
+
+describe('partitionFindingsByVerdict', () => {
+  it('puts every confirmed finding ahead of every unverified one, regardless of severity, keeping real indexes', () => {
+    // index: 0=high/unverified, 1=medium/confirmed, 2=low/confirmed, 3=high/confirmed
+    const findings = [
+      f('high', 'a', 'unverified'),
+      f('medium', 'b', 'confirmed'),
+      f('low', 'c', 'confirmed'),
+      f('high', 'd', 'confirmed'),
+    ]
+    const { confirmed, unverified } = partitionFindingsByVerdict(findings)
+    expect(confirmed.map((x) => x.index)).toEqual([1, 2, 3])
+    expect(unverified.map((x) => x.index)).toEqual([0])
+    expect(confirmed.every((x) => x.finding.verdict === 'confirmed')).toBe(true)
+    expect(unverified.every((x) => x.finding.verdict === 'unverified')).toBe(true)
   })
 })
 

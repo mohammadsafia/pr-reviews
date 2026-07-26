@@ -49,6 +49,24 @@ export function applyPostResult(
   return { message, remainingChecked }
 }
 
+/** Splits findings into a confirmed partition and an unverified partition, each finding
+ * paired with its real index in the original array. Confirmed findings render above
+ * unverified ones regardless of severity (the approved "unverified sorts below confirmed"
+ * decision) — severity grouping within each partition is applied separately via
+ * groupFindingsBySeverity, which is left untouched. */
+export function partitionFindingsByVerdict(
+  findings: Finding[],
+): {
+  confirmed: { finding: Finding; index: number }[]
+  unverified: { finding: Finding; index: number }[]
+} {
+  const indexed = findings.map((finding, index) => ({ finding, index }))
+  return {
+    confirmed: indexed.filter((x) => x.finding.verdict === 'confirmed'),
+    unverified: indexed.filter((x) => x.finding.verdict !== 'confirmed'),
+  }
+}
+
 export function groupFindingsBySeverity(
   findings: Finding[],
 ): { severity: Severity; items: { finding: Finding; index: number }[] }[] {
@@ -162,6 +180,8 @@ export function RunView() {
     .map((finding, index) => ({ finding, index }))
     .filter(({ index }) => checked.has(index))
 
+  const { confirmed, unverified } = partitionFindingsByVerdict(run.findings)
+
   return (
     <main className="flex flex-col gap-8 pb-8">
       <div className="flex flex-col gap-2">
@@ -246,24 +266,36 @@ export function RunView() {
               <Alert.Description>Nothing to flag. The agent reviewed this PR clean.</Alert.Description>
             </Alert>
           ) : (
-            groupFindingsBySeverity(run.findings).map((g) => (
-              <div key={g.severity} className="flex flex-col gap-3">
-                <Badge variant={SEVERITY_VARIANT[g.severity]} size="sm" className="w-fit capitalize">
-                  {g.severity}
-                </Badge>
-                <div className="flex flex-col gap-3">
-                  {g.items.map(({ finding, index }) => (
-                    <FindingCard
-                      key={index}
-                      finding={finding}
-                      index={index}
-                      checked={checked.has(index)}
-                      onToggle={toggleFinding}
-                    />
-                  ))}
+            // Partition confirmed vs unverified FIRST, then group each partition by severity
+            // — so every confirmed finding renders above every unverified one, honoring
+            // "unverified sorts below confirmed" regardless of severity.
+            [
+              { findings: confirmed.map((x) => x.finding), indexes: confirmed.map((x) => x.index) },
+              { findings: unverified.map((x) => x.finding), indexes: unverified.map((x) => x.index) },
+            ].map(({ findings, indexes }, partition) =>
+              groupFindingsBySeverity(findings).map((g) => (
+                <div key={`${partition}-${g.severity}`} className="flex flex-col gap-3">
+                  <Badge variant={SEVERITY_VARIANT[g.severity]} size="sm" className="w-fit capitalize">
+                    {g.severity}
+                    {partition === 1 ? ' · unverified' : ''}
+                  </Badge>
+                  <div className="flex flex-col gap-3">
+                    {g.items.map(({ finding, index: localIndex }) => {
+                      const index = indexes[localIndex]
+                      return (
+                        <FindingCard
+                          key={index}
+                          finding={finding}
+                          index={index}
+                          checked={checked.has(index)}
+                          onToggle={toggleFinding}
+                        />
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))
+              )),
+            )
           )}
 
           {postMessage && <p className="text-success text-sm">{postMessage}</p>}
