@@ -7,8 +7,10 @@ import { PrAuthError } from './providers/errors.js'
 import { makeClient } from './providers/factory.js'
 import { parsePrUrl } from './providers/parsePrUrl.js'
 import { RepoCache } from './repos/cache.js'
+import { dedupeFindings } from './review/dedup.js'
 import { countDiffLines } from './review/findings.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
+import { verifyFinding } from './review/verify.js'
 import { makeSerialQueue } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
@@ -170,7 +172,7 @@ export function buildApp(
   })
 
   app.post('/api/runs', async (req, reply) => {
-    const body = req.body as { url: string; skills: string[]; focus?: string; force?: boolean }
+    const body = req.body as { url: string; skills: string[]; focus?: string; force?: boolean; verify?: boolean }
     const c = cfg()
     let pr: PrRef
     try {
@@ -200,7 +202,7 @@ export function buildApp(
       prTitle: meta.title,
       skills: body.skills,
       focus: body.focus,
-      verify: true,
+      verify: body.verify !== false,
       status: 'queued',
     })
     runQueue.push(() => executeRun(run.id, { pr, meta, diff, body }))
@@ -209,7 +211,7 @@ export function buildApp(
 
   async function executeRun(
     runId: string,
-    ctx: { pr: PrRef; meta: PrMeta; diff: string; body: { skills: string[]; focus?: string } },
+    ctx: { pr: PrRef; meta: PrMeta; diff: string; body: { skills: string[]; focus?: string; verify?: boolean } },
   ): Promise<void> {
     let s: RunStore | undefined
     let run: RunRecord | undefined
@@ -281,9 +283,31 @@ export function buildApp(
         }),
       )
 
-      run.findings = outcomes.flatMap((o) => o.findings)
+      const merged = outcomes.flatMap((o) => o.findings)
       run.skillResults = outcomes.map((o) => o.result)
       const allFailed = outcomes.every((o) => o.result.status === 'failed')
+
+      let findings = dedupeFindings(merged)
+      const doVerify = ctx.body.verify !== false
+      run.verify = doVerify
+      if (doVerify && findings.length > 0 && !allFailed) {
+        emit({ kind: 'status', text: `Verifying ${findings.length} findings…`, at: new Date().toISOString() })
+        await Promise.all(
+          findings.map((f) =>
+            verifyFinding(f, { meta: ctx.meta, diff: ctx.diff, cwd, model: c.model }, emit, agentQuery).then((v) => {
+              f.verdict = v.verdict
+              f.verifierReason = v.reason
+            }),
+          ),
+        )
+      }
+      const RANK: Record<string, number> = { high: 3, medium: 2, low: 1, info: 0 }
+      findings.sort((a, b) => {
+        if (a.verdict !== b.verdict) return a.verdict === 'confirmed' ? -1 : 1
+        return RANK[b.severity] - RANK[a.severity]
+      })
+      run.findings = findings
+
       if (allFailed) {
         run.status = 'failed'
         run.error = `All ${outcomes.length} skill reviews failed`

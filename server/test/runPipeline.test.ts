@@ -79,8 +79,17 @@ function fakeClient(meta: PrMeta, diff: string): PrProviderClient {
   }
 }
 
+// Every finding now goes through a verify pass by default (see the three new tests below),
+// so the shared fakes must answer the verifier's prompt (recognizable by its distinctive
+// "adversarially verifying" text) as well as the initial per-skill review prompt — otherwise
+// every pre-existing test in this file would pick up a spurious verifierReason from the
+// fail-open "unparseable verdict" fallback and its exact-equality assertions would break.
 function fakeAgent(findings: unknown[]): AgentQuery {
-  return async function* () {
+  return async function* (prompt: string) {
+    if (/adversarially verifying/.test(prompt)) {
+      yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed"}\n```' }
+      return
+    }
     yield { type: 'assistant' as const, text: 'reviewing' }
     yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify(findings) + '\n```' }
   }
@@ -92,6 +101,10 @@ function fakeAgent(findings: unknown[]): AgentQuery {
  * that skill's subagent report an agent failure (mirrors a real SDK error result). */
 function fakeAgentPerSkill(bySkill: Record<string, unknown[] | 'fail'>): AgentQuery {
   return async function* (prompt: string) {
+    if (/adversarially verifying/.test(prompt)) {
+      yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed"}\n```' }
+      return
+    }
     const match = /## Skill: (\S+)/.exec(prompt)
     const skillName = match ? match[1] : 'general'
     const outcome = bySkill[skillName]
@@ -336,5 +349,147 @@ describe('run pipeline integration', () => {
     const { skill: _skill2, ...findingRest2 } = finding
     expect(run.findings).toEqual([{ ...findingRest2, skills: ['general'], verdict: 'confirmed' }])
     expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
+  })
+
+  it('dedupes same-location findings across skills and verifies once each', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const diff = '+line1\n+line2\n'
+    const finding = {
+      file: 'a.ts',
+      line: 5,
+      severity: 'high',
+      category: 'bug',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'ignored',
+    }
+    let verifyCalls = 0
+    const agent: AgentQuery = async function* (prompt: string) {
+      if (/adversarially verifying/.test(prompt)) {
+        verifyCalls++
+        yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed","reason":"ok"}\n```' }
+        return
+      }
+      yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.findings).toHaveLength(1)
+    expect(run.findings[0].skills.slice().sort()).toEqual(['skill-a', 'skill-b'])
+    expect(run.findings[0].verdict).toBe('confirmed')
+    expect(verifyCalls).toBe(1)
+  })
+
+  it('skips verification when verify:false — no verifier agent calls, all confirmed', async () => {
+    const path = tempConfigWithSkills(['skill-a'])
+    const diff = '+line1\n+line2\n'
+    const finding = {
+      file: 'a.ts',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'ignored',
+    }
+    let verifyCalls = 0
+    const agent: AgentQuery = async function* (prompt: string) {
+      if (/adversarially verifying/.test(prompt)) {
+        verifyCalls++
+        yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed"}\n```' }
+        return
+      }
+      yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a'], verify: false },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.verify).toBe(false)
+    expect(verifyCalls).toBe(0)
+    expect(run.findings).toHaveLength(1)
+    expect(run.findings[0].verdict).toBe('confirmed')
+  })
+
+  it('sorts unverified findings after confirmed, regardless of severity', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const diff = '+line1\n+line2\n'
+    const findingLow = {
+      file: 'a.ts',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 'keep',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'ignored',
+    }
+    const findingHigh = {
+      file: 'a.ts',
+      line: 2,
+      severity: 'high',
+      category: 'bug',
+      summary: 'drop',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'ignored',
+    }
+    const agent: AgentQuery = async function* (prompt: string) {
+      if (/adversarially verifying/.test(prompt)) {
+        if (/drop/.test(prompt)) {
+          yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"unverified","reason":"nope"}\n```' }
+        } else {
+          yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed","reason":"yep"}\n```' }
+        }
+        return
+      }
+      const match = /## Skill: (\S+)/.exec(prompt)
+      const skillName = match ? match[1] : 'general'
+      const finding = skillName === 'skill-a' ? findingLow : findingHigh
+      yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.findings).toHaveLength(2)
+    expect(run.findings[0].summary).toBe('keep')
+    expect(run.findings[0].verdict).toBe('confirmed')
+    expect(run.findings[1].summary).toBe('drop')
+    expect(run.findings[1].verdict).toBe('unverified')
   })
 })
