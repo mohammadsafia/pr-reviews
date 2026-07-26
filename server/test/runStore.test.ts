@@ -8,6 +8,7 @@ const base = {
   pr: { provider: 'bitbucket' as const, workspace: 'ws', repo: 'r', id: 1 },
   prTitle: 'T',
   skills: ['review-code'],
+  verify: true,
   status: 'running' as const,
 }
 

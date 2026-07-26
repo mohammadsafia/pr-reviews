@@ -225,6 +225,7 @@ describe('app', () => {
       pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 1 },
       prTitle: 'T',
       skills: [],
+      verify: true,
       status: 'completed',
     })
     const mkFinding = (summary: string): Finding => ({
@@ -235,7 +236,8 @@ describe('app', () => {
       summary,
       detail: 'd',
       suggestion: 'x',
-      skill: 'review-code',
+      skills: ['review-code'],
+      verdict: 'confirmed',
     })
     run.findings = [mkFinding('first'), mkFinding('second')]
     runStore.save(run)
@@ -340,18 +342,21 @@ describe('app', () => {
       pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 1 },
       prTitle: 'Running one',
       skills: [],
+      verify: true,
       status: 'running',
     })
     const queuedRun = runStore.create({
       pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 2 },
       prTitle: 'Queued one',
       skills: [],
+      verify: true,
       status: 'queued',
     })
     const completedRun = runStore.create({
       pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 3 },
       prTitle: 'Completed one',
       skills: [],
+      verify: true,
       status: 'completed',
     })
 
