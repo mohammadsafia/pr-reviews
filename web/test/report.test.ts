@@ -70,7 +70,12 @@ describe('applyPostResult', () => {
   it('clears only the successfully-posted finding indexes from checked, keeping unattempted/failed ones checked', () => {
     const sentIndexes = [0, 1, 2]
     const checked = new Set([0, 1, 2])
-    const result = { posted: [111], failed: [{ index: 1, error: 'bitbucket down' }] }
+    const result = {
+      posted: [111],
+      skipped: [] as { index: number; reason: 'already-posted' | 'resolved' }[],
+      failed: [{ index: 1, error: 'bitbucket down' }],
+      dedupeChecked: true,
+    }
     const { message, remainingChecked } = applyPostResult(sentIndexes, result, checked)
     expect(remainingChecked).toEqual(new Set([1, 2]))
     expect(message).toContain('Posted 1 comment')
@@ -80,9 +85,34 @@ describe('applyPostResult', () => {
   it('reports a clean success with no failures and clears all checked', () => {
     const sentIndexes = [0, 1]
     const checked = new Set([0, 1])
-    const result = { posted: [111, 222], failed: [] as { index: number; error: string }[] }
+    const result = {
+      posted: [111, 222],
+      skipped: [] as { index: number; reason: 'already-posted' | 'resolved' }[],
+      failed: [] as { index: number; error: string }[],
+      dedupeChecked: true,
+    }
     const { message, remainingChecked } = applyPostResult(sentIndexes, result, checked)
     expect(remainingChecked).toEqual(new Set())
     expect(message).toBe('Posted 2 comments.')
+  })
+
+  it('reports skipped counts alongside posted', () => {
+    const { message } = applyPostResult(
+      [0, 1, 2],
+      {
+        posted: [11],
+        skipped: [
+          { index: 1, reason: 'already-posted' },
+          { index: 2, reason: 'resolved' },
+        ],
+        failed: [],
+        dedupeChecked: true,
+      },
+      new Set([0, 1, 2]),
+    )
+    expect(message).toMatch(/Posted 1/)
+    expect(message).toMatch(/skipped 2/i)
+    expect(message).toMatch(/already posted/i)
+    expect(message).toMatch(/resolved/i)
   })
 })

@@ -10,7 +10,15 @@ import { FindingCard } from '@/components/FindingCard'
 import { ReviewConsole } from '@/components/ReviewConsole'
 import { StatusBadge } from '@/components/StatusBadge'
 
-import { createRun, getRun, postComments, subscribeRun, type PostCommentsResult } from '../api.js'
+import {
+  createRun,
+  getPostPreview,
+  getRun,
+  postComments,
+  subscribeRun,
+  type PostCommentsResult,
+  type PostPreview,
+} from '../api.js'
 import type { Finding, RunEvent, RunRecord, Severity } from '../types.js'
 
 const ORDER: Severity[] = ['high', 'medium', 'low', 'info']
@@ -43,6 +51,14 @@ export function applyPostResult(
   const remainingChecked = new Set([...checked].filter((i) => !succeededIndexes.has(i)))
   const n = result.posted.length
   let message = `Posted ${n} comment${n === 1 ? '' : 's'}.`
+  if (result.skipped.length > 0) {
+    const already = result.skipped.filter((s) => s.reason === 'already-posted').length
+    const resolved = result.skipped.filter((s) => s.reason === 'resolved').length
+    const parts = [already ? `${already} already posted` : '', resolved ? `${resolved} resolved` : '']
+      .filter(Boolean)
+      .join(', ')
+    message += ` Skipped ${result.skipped.length} (${parts}).`
+  }
   if (result.failed.length > 0) {
     message += ` Failed: ${result.failed.map((f) => `#${f.index} — ${f.error}`).join('; ')}.`
   }
@@ -87,6 +103,7 @@ export function RunView() {
   const [confirming, setConfirming] = useState(false)
   const [postMessage, setPostMessage] = useState<string | null>(null)
   const [loadError, setLoadError] = useState('')
+  const [preview, setPreview] = useState<PostPreview | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -125,6 +142,24 @@ export function RunView() {
     }
   }, [id])
 
+  useEffect(() => {
+    if (!confirming) return
+    let cancelled = false
+    setPreview(null)
+    getPostPreview(id)
+      .then((p) => {
+        if (!cancelled) setPreview(p)
+      })
+      .catch(() => {
+        // No preview available (e.g. the PR couldn't be reached) — the dialog falls back
+        // to treating every selected finding as 'new' via the dedupeChecked === false path.
+        if (!cancelled) setPreview({ statuses: [], dedupeChecked: false })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [confirming, id])
+
   if (loadError) {
     return (
       <main>
@@ -162,8 +197,19 @@ export function RunView() {
     if (res.id) navigate(`/runs/${res.id}`)
   }
 
+  // Once the preview loads, every selected finding gets a New/Already posted/Resolved status;
+  // while it's still loading (preview === null) or the server couldn't check the PR
+  // (dedupeChecked === false), every finding is treated as 'new' — dedupeChecked === false
+  // additionally surfaces a warning so the user knows nothing is being de-duplicated.
+  const dedupeChecked = preview?.dedupeChecked ?? true
+  const statusByIndex = new Map((preview?.statuses ?? []).map((s) => [s.index, s.status]))
+  function statusFor(index: number): 'new' | 'already-posted' | 'resolved' {
+    if (!dedupeChecked) return 'new'
+    return statusByIndex.get(index) ?? 'new'
+  }
+
   async function post() {
-    const sentIndexes = [...checked]
+    const sentIndexes = [...checked].filter((i) => statusFor(i) === 'new')
     try {
       const result = await postComments(id, sentIndexes)
       const { message, remainingChecked } = applyPostResult(sentIndexes, result, checked)
@@ -179,6 +225,7 @@ export function RunView() {
   const selectedItems = run.findings
     .map((finding, index) => ({ finding, index }))
     .filter(({ index }) => checked.has(index))
+  const newCount = selectedItems.filter(({ index }) => statusFor(index) === 'new').length
 
   const { confirmed, unverified } = partitionFindingsByVerdict(run.findings)
 
@@ -312,26 +359,51 @@ export function RunView() {
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <Dialog.Panel>
           <Dialog.Header>
-            <Dialog.Title>Post {checked.size} comments to Bitbucket?</Dialog.Title>
+            <Dialog.Title>Post {newCount} comments to Bitbucket?</Dialog.Title>
             <Dialog.Description>These comments will be created on the pull request.</Dialog.Description>
           </Dialog.Header>
           <Dialog.Content>
+            {!dedupeChecked && (
+              <p className="bg-muted-200 text-muted-foreground mb-3 rounded px-3 py-2 text-xs">
+                Couldn't check the PR for existing comments — nothing will be de-duplicated.
+              </p>
+            )}
             <ul className="flex max-h-96 flex-col gap-4 overflow-y-auto">
-              {selectedItems.map(({ finding, index }) => (
-                <li key={index} className="border-muted-200 flex flex-col gap-2 border-b pb-4 text-sm last:border-0 last:pb-0">
-                  <span className="bg-code-surface text-code-foreground font-family-mono w-fit rounded px-1.5 py-0.5 text-xs">
-                    {finding.file}:{finding.line}
-                  </span>
-                  <pre className="font-family-sans whitespace-pre-wrap text-sm">{formatCommentBody(finding)}</pre>
-                </li>
-              ))}
+              {selectedItems.map(({ finding, index }) => {
+                const status = statusFor(index)
+                return (
+                  <li
+                    key={index}
+                    className="border-muted-200 flex flex-col gap-2 border-b pb-4 text-sm last:border-0 last:pb-0"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="bg-code-surface text-code-foreground font-family-mono w-fit rounded px-1.5 py-0.5 text-xs">
+                        {finding.file}:{finding.line}
+                      </span>
+                      {status === 'already-posted' && (
+                        <Badge variant="muted" size="xs">
+                          already posted
+                        </Badge>
+                      )}
+                      {status === 'resolved' && (
+                        <Badge variant="muted" size="xs">
+                          resolved
+                        </Badge>
+                      )}
+                    </div>
+                    <pre className="font-family-sans whitespace-pre-wrap text-sm">{formatCommentBody(finding)}</pre>
+                  </li>
+                )
+              })}
             </ul>
           </Dialog.Content>
           <Dialog.Footer className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setConfirming(false)}>
               Cancel
             </Button>
-            <Button onClick={post}>Post {checked.size} comments</Button>
+            <Button onClick={post} disabled={!preview || newCount === 0}>
+              Post {newCount} comment{newCount === 1 ? '' : 's'}
+            </Button>
           </Dialog.Footer>
         </Dialog.Panel>
       </Dialog>

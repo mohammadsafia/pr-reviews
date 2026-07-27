@@ -44,7 +44,9 @@ export async function createRun(input: {
 
 export interface PostCommentsResult {
   posted: number[]
+  skipped: { index: number; reason: 'already-posted' | 'resolved' }[]
   failed: { index: number; error: string }[]
+  dedupeChecked: boolean
 }
 
 export const postComments = (id: string, findingIndexes: number[]) =>
@@ -53,6 +55,14 @@ export const postComments = (id: string, findingIndexes: number[]) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ findingIndexes }),
   }).then((r) => json<PostCommentsResult>(r))
+
+export interface PostPreview {
+  statuses: { index: number; status: 'new' | 'already-posted' | 'resolved' }[]
+  dedupeChecked: boolean
+}
+
+export const getPostPreview = (id: string) =>
+  fetch(`/api/runs/${id}/post-preview`).then((r) => json<PostPreview>(r))
 
 export async function clearRepoCache(
   provider: 'bitbucket' | 'github',

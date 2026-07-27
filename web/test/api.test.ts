@@ -3,6 +3,7 @@ import {
   addGithubSkillSource,
   clearRepoCache,
   createRun,
+  getPostPreview,
   postComments,
   refreshSkillSource,
   removeSkillSource,
@@ -134,16 +135,55 @@ describe('clearRepoCache', () => {
 })
 
 describe('postComments', () => {
-  it('returns the posted and failed arrays from the server', async () => {
+  it('returns the posted, skipped, failed arrays and dedupeChecked from the server', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
-        new Response(JSON.stringify({ posted: [111], failed: [{ index: 1, error: 'bitbucket down' }] }), {
-          status: 200,
-        }),
+        new Response(
+          JSON.stringify({
+            posted: [111],
+            skipped: [{ index: 2, reason: 'already-posted' }],
+            failed: [{ index: 1, error: 'bitbucket down' }],
+            dedupeChecked: true,
+          }),
+          { status: 200 },
+        ),
       ),
     )
     const r = await postComments('run1', [0, 1])
-    expect(r).toEqual({ posted: [111], failed: [{ index: 1, error: 'bitbucket down' }] })
+    expect(r).toEqual({
+      posted: [111],
+      skipped: [{ index: 2, reason: 'already-posted' }],
+      failed: [{ index: 1, error: 'bitbucket down' }],
+      dedupeChecked: true,
+    })
+  })
+})
+
+describe('getPostPreview', () => {
+  it('returns per-index statuses and dedupeChecked from the server', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            statuses: [
+              { index: 0, status: 'new' },
+              { index: 1, status: 'already-posted' },
+            ],
+            dedupeChecked: true,
+          }),
+          { status: 200 },
+        ),
+      ),
+    )
+    const r = await getPostPreview('run1')
+    expect(r).toEqual({
+      statuses: [
+        { index: 0, status: 'new' },
+        { index: 1, status: 'already-posted' },
+      ],
+      dedupeChecked: true,
+    })
   })
 })
