@@ -36,12 +36,12 @@ describe('failedSkillNames', () => {
       skills: ['review-code', 'audit-a11y'],
       skillResults: [
         { skill: 'review-code', status: 'failed', findingCount: 0, error: 'x' },
-        { skill: 'audit-a11y', status: 'completed', findingCount: 2 },
+        { skill: 'audit-a11y', status: 'failed', findingCount: 0, error: 'x' },
         { skill: 'general', status: 'failed', findingCount: 0, error: 'x' }, // not a selected skill → dropped
         { skill: 'review-code', status: 'failed', findingCount: 0, error: 'x' }, // dupe → collapsed
       ],
     })
-    expect(failedSkillNames(run)).toEqual(['review-code'])
+    expect(failedSkillNames(run)).toEqual(['review-code', 'audit-a11y'])
   })
   it('returns [] when nothing failed', () => {
     expect(failedSkillNames(baseRun({ skillResults: [{ skill: 'review-code', status: 'completed', findingCount: 1 }] }))).toEqual([])

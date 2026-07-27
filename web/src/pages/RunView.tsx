@@ -203,6 +203,7 @@ export function RunView() {
   if (!run) return <p className="text-muted-foreground text-sm">Loading…</p>
 
   const active = run.status === 'running' || run.status === 'queued'
+  const failed = failedSkillNames(run)
 
   function toggleFinding(index: number) {
     const next = new Set(checked)
@@ -228,13 +229,15 @@ export function RunView() {
 
   async function retryFailedSkills() {
     if (!run) return
+    const failed = failedSkillNames(run)
+    if (failed.length === 0) return
     const url =
       run.pr.provider === 'github'
         ? `https://github.com/${run.pr.workspace}/${run.pr.repo}/pull/${run.pr.id}`
         : `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`
     const res = await createRun({
       url,
-      skills: failedSkillNames(run),
+      skills: failed,
       focus: run.focus,
       verify: run.verify,
       force: true,
@@ -303,13 +306,13 @@ export function RunView() {
         </Alert>
       )}
 
-      {run.status === 'completed' && failedSkillNames(run).length > 0 && (
+      {run.status === 'completed' && failed.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-muted-foreground text-sm">
-            {failedSkillNames(run).length} skill{failedSkillNames(run).length === 1 ? '' : 's'} failed on this run.
+            {failed.length} skill{failed.length === 1 ? '' : 's'} failed on this run.
           </span>
           <Button variant="secondary" size="sm" className="w-fit" onClick={retryFailedSkills}>
-            Retry failed skills ({failedSkillNames(run).length})
+            Retry failed skills ({failed.length})
           </Button>
         </div>
       )}
@@ -359,9 +362,9 @@ export function RunView() {
               <Button variant="secondary" size="sm" className="w-fit" onClick={retry}>
                 Retry run
               </Button>
-              {failedSkillNames(run).length > 0 && (
+              {failed.length > 0 && (
                 <Button variant="secondary" size="sm" className="w-fit" onClick={retryFailedSkills}>
-                  Retry failed skills ({failedSkillNames(run).length})
+                  Retry failed skills ({failed.length})
                 </Button>
               )}
             </div>
