@@ -115,4 +115,22 @@ describe('applyPostResult', () => {
     expect(message).toMatch(/already posted/i)
     expect(message).toMatch(/resolved/i)
   })
+
+  it('does not misattribute success by positional slice when a skip falls before a real post (preview-vs-post race)', () => {
+    // Server processes sentIndexes in order: index 0 is skipped (already posted by someone
+    // else between preview and post), index 1 is actually posted. A naive
+    // sentIndexes.slice(0, posted.length) would wrongly treat index 0 as the "succeeded" one.
+    const sentIndexes = [0, 1]
+    const checked = new Set([0, 1])
+    const result = {
+      posted: [99],
+      skipped: [{ index: 0, reason: 'already-posted' as const }],
+      failed: [] as { index: number; error: string }[],
+      dedupeChecked: true,
+    }
+    const { remainingChecked } = applyPostResult(sentIndexes, result, checked)
+    // Both indexes should be cleared: 0 because it's skipped (already exists on the PR), 1
+    // because it actually succeeded — but NOT via the wrong attribution.
+    expect(remainingChecked).toEqual(new Set())
+  })
 })

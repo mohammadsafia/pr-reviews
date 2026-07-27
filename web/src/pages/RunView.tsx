@@ -38,17 +38,25 @@ export function formatCommentBody(f: Finding): string {
 
 /**
  * Interprets a POST /api/runs/:id/comments result against the finding indexes that were
- * sent. The server processes `sentIndexes` in order and stops at the first failure, so the
- * first `posted.length` entries of `sentIndexes` are exactly the ones that succeeded — the
- * rest (the failed one and anything never attempted) stay checked so the user can retry them.
+ * sent. The server processes `sentIndexes` in order, skipping some (preview-vs-post race:
+ * already posted/resolved by the time the post lands) and posting others, stopping at the
+ * first failure. Skipped indexes don't consume a "posted" slot, so the succeeded set is the
+ * first `posted.length` entries of the *attempted* (non-skipped) indexes — not a raw
+ * positional slice of `sentIndexes`. Both succeeded and skipped indexes are cleared from
+ * checked (skipped ones already exist on the PR); the rest (failed / never attempted) stay
+ * checked so the user can retry them.
  */
 export function applyPostResult(
   sentIndexes: number[],
   result: PostCommentsResult,
   checked: Set<number>,
 ): { message: string; remainingChecked: Set<number> } {
-  const succeededIndexes = new Set(sentIndexes.slice(0, result.posted.length))
-  const remainingChecked = new Set([...checked].filter((i) => !succeededIndexes.has(i)))
+  const skippedSet = new Set(result.skipped.map((s) => s.index))
+  const attempted = sentIndexes.filter((i) => !skippedSet.has(i))
+  const succeededIndexes = new Set(attempted.slice(0, result.posted.length))
+  const remainingChecked = new Set(
+    [...checked].filter((i) => !succeededIndexes.has(i) && !skippedSet.has(i)),
+  )
   const n = result.posted.length
   let message = `Posted ${n} comment${n === 1 ? '' : 's'}.`
   if (result.skipped.length > 0) {
