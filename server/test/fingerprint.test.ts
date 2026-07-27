@@ -34,4 +34,10 @@ describe('commentMarker / parseFingerprint', () => {
   it('returns undefined when there is no marker', () => {
     expect(parseFingerprint('plain comment, no marker')).toBeUndefined()
   })
+  it('matches the LAST marker when the body contains more than one (e.g. a decoy quoted earlier), since the real marker is always appended last', () => {
+    const body =
+      'Someone quoted a marker in their reply: <!-- prr-fp:aaaaaaaaaaaa -->\n\n' +
+      'actual comment text\n\n<!-- prr-fp:bbbbbbbbbbbb -->'
+    expect(parseFingerprint(body)).toBe('bbbbbbbbbbbb')
+  })
 })
