@@ -29,3 +29,13 @@
     - Navigate back to the PR and resolve the comment thread (mark as resolved or click the resolve button in your PR view).
     - Return to the tool and re-open the confirm dialog for posting → the resolved comment should now show as "Resolved" and be excluded from posting.
     - Click "Post" to submit any new findings (if any remain) → the result message should read "Posted N. Skipped M (X already posted, Y resolved)" (or similar, accounting for actual counts).
+
+11. **Login-expiry recovery and retry-failed-skills**:
+    - Invalidate your Claude authentication: either exit Claude Code (`exit` in the CLI) or temporarily set `ANTHROPIC_API_KEY=invalid` in your shell.
+    - Home → paste a PR URL, select review skills, Run Review.
+    - The run view should display a distinct banner: "Your Claude login appears to have expired — re-authenticate (run `/login` or restart with a valid `ANTHROPIC_API_KEY`), then retry." (NOT a raw API error).
+    - Below the banner, confirm a "Retry failed skills (N)" button appears (where N is the count of failed skills).
+    - Re-authenticate: exit the tool, run `/login` (or restore your `ANTHROPIC_API_KEY`), and return to the run view.
+    - Click "Retry failed skills (N)" → a new run should start with a fresh live feed, showing only the previously-failed skills being re-analyzed.
+    - Wait for the retry run to complete; it should complete successfully (assuming your authentication is now valid).
+    - Return to the first (failed) run's view → confirm its findings are still there and its banner still shows the expiry message; the retry run is a separate entry in the run history.

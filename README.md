@@ -41,6 +41,12 @@ If reading the PR's comments fails, the tool falls back gracefully: nothing is d
 
 Two honest limitations: finding matching is best-effort and relies on the invisible fingerprint marker, so a reworded finding will have a different fingerprint and may re-post; resolution-awareness only applies to comments posted by the tool itself (marked with the fingerprint), not arbitrary developer discussions in unrelated threads.
 
+### Recovery
+
+If your Claude login expires mid-run (e.g., Claude Code session expires or `ANTHROPIC_API_KEY` becomes invalid), the run view shows a distinct banner: "Your Claude login appears to have expired — re-authenticate (run `/login` or restart with a valid `ANTHROPIC_API_KEY`), then retry." This replaces raw API errors with a clear recovery path.
+
+Additionally, any run with one or more failed skills offers a "Retry failed skills (N)" button that starts a new run scoped to only those skills. The originally successful skills' findings remain in the first run; you don't re-analyze what already passed. This is especially useful when transient failures (like a temporary network hiccup in a subagent) cause skill timeouts on an otherwise good PR.
+
 ## Data Locations
 
 - **Config:** `~/.pr-reviewer/config.json` (0600 permissions—credentials)
