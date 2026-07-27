@@ -401,6 +401,10 @@ export function buildApp(
         posted.push(commentId)
         run.postedCommentIds.push(commentId)
         s.save(run)
+        // Record the fingerprint as posted (open, i.e. not resolved) so a later finding in
+        // this same batch with an identical fingerprint (same file+category+summary, just a
+        // different line) is skipped as 'already-posted' instead of double-posting.
+        fps.set(fp, false)
       } catch (err: any) {
         failed.push({ index: i, error: err.message })
         break

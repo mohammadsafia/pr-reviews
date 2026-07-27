@@ -346,6 +346,64 @@ describe('app', () => {
     expect(postedBodies[0].endsWith(`\n\n<!-- prr-fp:${fp2} -->`)).toBe(true)
   })
 
+  it('POST /api/runs/:id/comments skips the second of two intra-batch findings with an identical fingerprint (same file/category/summary, different lines)', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const pr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'repo', id: 1 }
+    const run = runStore.create({
+      pr,
+      prTitle: 'T',
+      skills: [],
+      verify: true,
+      status: 'completed',
+    })
+    const mkFinding = (line: number): Finding => ({
+      file: 'a.ts',
+      line,
+      severity: 'low',
+      category: 'style',
+      summary: 'duplicate finding',
+      detail: 'd',
+      suggestion: 'x',
+      skills: ['review-code'],
+      verdict: 'confirmed',
+    })
+    // Same file/category/summary but different lines -> same fingerprint, since fingerprint
+    // is line-independent.
+    const findings = [mkFinding(1), mkFinding(2)]
+    run.findings = findings
+    runStore.save(run)
+
+    let call = 0
+    const fakeClient: PrProviderClient = {
+      getPullRequest: async () => {
+        throw new Error('not used')
+      },
+      getDiff: async () => {
+        throw new Error('not used')
+      },
+      cloneUrl: () => 'not used',
+      listComments: async () => [],
+      postInlineComment: async () => {
+        call++
+        return 500 + call
+      },
+    }
+    const app = buildApp({ configPath: path, clientFactory: () => fakeClient })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${run.id}/comments`,
+      payload: { findingIndexes: [0, 1] },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.posted).toEqual([501])
+    expect(body.skipped).toEqual([{ index: 1, reason: 'already-posted' }])
+    expect(body.failed).toEqual([])
+    expect(call).toBe(1)
+  })
+
   it('POST /api/runs/:id/comments fails open when listComments throws: posts all, dedupeChecked false', async () => {
     const path = tempConfig()
     const c = loadConfig(path)
