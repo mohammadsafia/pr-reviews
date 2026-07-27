@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { buildApp } from '../src/app.js'
 import { saveConfig, loadConfig } from '../src/config.js'
+import { fingerprint } from '../src/review/fingerprint.js'
 import { RunStore } from '../src/store/runs.js'
 import type { Finding, PrProviderClient } from '../src/types.js'
 
@@ -267,9 +268,191 @@ describe('app', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.posted).toEqual([111])
+    expect(body.skipped).toEqual([])
     expect(body.failed).toEqual([{ index: 1, error: 'bitbucket down' }])
+    expect(body.dedupeChecked).toBe(true)
     const saved = runStore.get(run.id)!
     expect(saved.postedCommentIds).toEqual([111])
+  })
+
+  it('POST /api/runs/:id/comments skips findings whose fingerprint already exists (open → already-posted, resolved → resolved) and appends the marker when posting new ones', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const pr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'repo', id: 1 }
+    const run = runStore.create({
+      pr,
+      prTitle: 'T',
+      skills: [],
+      verify: true,
+      status: 'completed',
+    })
+    const mkFinding = (summary: string): Finding => ({
+      file: 'a.ts',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary,
+      detail: 'd',
+      suggestion: 'x',
+      skills: ['review-code'],
+      verdict: 'confirmed',
+    })
+    const findings = [mkFinding('first'), mkFinding('second'), mkFinding('third')]
+    run.findings = findings
+    runStore.save(run)
+
+    const fp0 = fingerprint(pr, findings[0])
+    const fp1 = fingerprint(pr, findings[1])
+    const fp2 = fingerprint(pr, findings[2])
+
+    const postedBodies: string[] = []
+    const fakeClient: PrProviderClient = {
+      getPullRequest: async () => {
+        throw new Error('not used')
+      },
+      getDiff: async () => {
+        throw new Error('not used')
+      },
+      cloneUrl: () => 'not used',
+      listComments: async () => [
+        { path: 'a.ts', line: 1, body: `existing open comment\n\n<!-- prr-fp:${fp0} -->`, resolved: false },
+        { path: 'a.ts', line: 1, body: `existing resolved comment\n\n<!-- prr-fp:${fp1} -->`, resolved: true },
+      ],
+      postInlineComment: async (_pr, comment) => {
+        postedBodies.push(comment.text)
+        return 999
+      },
+    }
+    const app = buildApp({ configPath: path, clientFactory: () => fakeClient })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${run.id}/comments`,
+      payload: { findingIndexes: [0, 1, 2] },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.skipped).toEqual(
+      expect.arrayContaining([
+        { index: 0, reason: 'already-posted' },
+        { index: 1, reason: 'resolved' },
+      ]),
+    )
+    expect(body.skipped).toHaveLength(2)
+    expect(body.posted).toEqual([999])
+    expect(body.failed).toEqual([])
+    expect(body.dedupeChecked).toBe(true)
+    expect(postedBodies).toHaveLength(1)
+    expect(postedBodies[0].endsWith(`\n\n<!-- prr-fp:${fp2} -->`)).toBe(true)
+  })
+
+  it('POST /api/runs/:id/comments fails open when listComments throws: posts all, dedupeChecked false', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const pr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'repo', id: 1 }
+    const run = runStore.create({
+      pr,
+      prTitle: 'T',
+      skills: [],
+      verify: true,
+      status: 'completed',
+    })
+    const finding: Finding = {
+      file: 'a.ts',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 'first',
+      detail: 'd',
+      suggestion: 'x',
+      skills: ['review-code'],
+      verdict: 'confirmed',
+    }
+    run.findings = [finding]
+    runStore.save(run)
+
+    const fakeClient: PrProviderClient = {
+      getPullRequest: async () => {
+        throw new Error('not used')
+      },
+      getDiff: async () => {
+        throw new Error('not used')
+      },
+      cloneUrl: () => 'not used',
+      listComments: async () => {
+        throw new Error('provider down')
+      },
+      postInlineComment: async () => 777,
+    }
+    const app = buildApp({ configPath: path, clientFactory: () => fakeClient })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${run.id}/comments`,
+      payload: { findingIndexes: [0] },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.posted).toEqual([777])
+    expect(body.skipped).toEqual([])
+    expect(body.failed).toEqual([])
+    expect(body.dedupeChecked).toBe(false)
+  })
+
+  it('GET /api/runs/:id/post-preview classifies each finding as new/already-posted/resolved', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const pr = { provider: 'bitbucket' as const, workspace: 'ws', repo: 'repo', id: 1 }
+    const run = runStore.create({
+      pr,
+      prTitle: 'T',
+      skills: [],
+      verify: true,
+      status: 'completed',
+    })
+    const mkFinding = (summary: string): Finding => ({
+      file: 'a.ts',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary,
+      detail: 'd',
+      suggestion: 'x',
+      skills: ['review-code'],
+      verdict: 'confirmed',
+    })
+    const findings = [mkFinding('first'), mkFinding('second'), mkFinding('third')]
+    run.findings = findings
+    runStore.save(run)
+
+    const fp0 = fingerprint(pr, findings[0])
+    const fp1 = fingerprint(pr, findings[1])
+
+    const fakeClient: PrProviderClient = {
+      getPullRequest: async () => {
+        throw new Error('not used')
+      },
+      getDiff: async () => {
+        throw new Error('not used')
+      },
+      cloneUrl: () => 'not used',
+      listComments: async () => [
+        { path: 'a.ts', line: 1, body: `existing open comment\n\n<!-- prr-fp:${fp0} -->`, resolved: false },
+        { path: 'a.ts', line: 1, body: `existing resolved comment\n\n<!-- prr-fp:${fp1} -->`, resolved: true },
+      ],
+      postInlineComment: async () => 1,
+    }
+    const app = buildApp({ configPath: path, clientFactory: () => fakeClient })
+    const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/post-preview` })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.dedupeChecked).toBe(true)
+    expect(body.statuses).toEqual([
+      { index: 0, status: 'already-posted' },
+      { index: 1, status: 'resolved' },
+      { index: 2, status: 'new' },
+    ])
   })
 
   it('DELETE /api/cache/:provider/:workspace/:repo rejects path traversal and deletes nothing outside the cache', async () => {

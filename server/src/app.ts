@@ -8,6 +8,7 @@ import { makeClient } from './providers/factory.js'
 import { parsePrUrl } from './providers/parsePrUrl.js'
 import { RepoCache } from './repos/cache.js'
 import { dedupeFindings } from './review/dedup.js'
+import { commentMarker, fingerprint, parseFingerprint } from './review/fingerprint.js'
 import { countDiffLines } from './review/findings.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
 import { verifyFinding } from './review/verify.js'
@@ -52,6 +53,24 @@ export function sweepStrandedRuns(runsDir: string): void {
     run.error = 'Server restarted while this run was in progress'
     run.finishedAt = new Date().toISOString()
     s.save(run)
+  }
+}
+
+/** Reads existing PR comments and returns fp→resolved plus whether the read succeeded. */
+async function readExistingFingerprints(
+  client: PrProviderClient,
+  pr: PrRef,
+): Promise<{ fps: Map<string, boolean>; dedupeChecked: boolean }> {
+  const fps = new Map<string, boolean>()
+  try {
+    for (const c of await client.listComments(pr)) {
+      const fp = parseFingerprint(c.body)
+      if (fp === undefined) continue
+      fps.set(fp, (fps.get(fp) ?? false) || c.resolved)
+    }
+    return { fps, dedupeChecked: true }
+  } catch {
+    return { fps, dedupeChecked: false }
   }
 }
 
@@ -362,12 +381,21 @@ export function buildApp(
     if (!run) return reply.code(404).send({ error: 'Run not found' })
     const c = cfg()
     const client = clientFactory(run.pr, c)
+    const { fps, dedupeChecked } = await readExistingFingerprints(client, run.pr)
     const posted: number[] = []
+    const skipped: { index: number; reason: 'already-posted' | 'resolved' }[] = []
     const failed: { index: number; error: string }[] = []
     for (const i of findingIndexes) {
       const f = run.findings[i]
       if (!f) continue
-      const text = `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
+      const fp = fingerprint(run.pr, f)
+      if (fps.has(fp)) {
+        skipped.push({ index: i, reason: fps.get(fp) ? 'resolved' : 'already-posted' })
+        continue
+      }
+      const text =
+        `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}` +
+        `\n\n${commentMarker(fp)}`
       try {
         const commentId = await client.postInlineComment(run.pr, { path: f.file, line: f.line, text })
         posted.push(commentId)
@@ -378,7 +406,21 @@ export function buildApp(
         break
       }
     }
-    return { posted, failed }
+    return { posted, skipped, failed, dedupeChecked }
+  })
+
+  app.get('/api/runs/:id/post-preview', async (req, reply) => {
+    const id = (req.params as { id: string }).id
+    const run = store().get(id)
+    if (!run) return reply.code(404).send({ error: 'Run not found' })
+    const client = clientFactory(run.pr, cfg())
+    const { fps, dedupeChecked } = await readExistingFingerprints(client, run.pr)
+    const statuses = run.findings.map((f, index) => {
+      const fp = fingerprint(run.pr, f)
+      const status = !fps.has(fp) ? 'new' : fps.get(fp) ? 'resolved' : 'already-posted'
+      return { index, status: status as 'new' | 'already-posted' | 'resolved' }
+    })
+    return { statuses, dedupeChecked }
   })
 
   app.delete('/api/cache/:provider/:workspace/:repo', async (req, reply) => {
