@@ -33,6 +33,14 @@ A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claud
 
 Each review run deduplicates findings across selected skills — when multiple skills flag the same issue on the same file and line, they merge into a single finding credited to all reporters. By default, each deduped finding is then verified by a second adversarial agent that re-reads the code and tries to refute it. Unverified findings are shown in the report with a "unverified" badge and a one-line reason — they are never hidden. A "Verify findings" checkbox on the New Review screen lets you toggle verification per run; disabling it makes runs faster and cheaper. Cost note: with verification enabled, expect one additional subagent session per deduped finding.
 
+### Idempotent and Resolution-Aware Comment Posting
+
+When posting findings back to a PR as comments, the tool is idempotent and resolution-aware. Each posted comment carries an invisible HTML comment fingerprint marker. Before posting, the tool reads the PR's existing comments and automatically skips any finding that has already been posted or whose thread the developer has resolved. In the confirm dialog, each selected finding is labeled **New**, **Already posted**, or **Resolved** and only New findings are posted. The result message reports "Posted N. Skipped M (X already posted, Y resolved)."
+
+If reading the PR's comments fails, the tool falls back gracefully: nothing is de-duplicated and posting proceeds as normal (the dialog shows a "couldn't verify comments" note).
+
+Two honest limitations: finding matching is best-effort and relies on the invisible fingerprint marker, so a reworded finding will have a different fingerprint and may re-post; resolution-awareness only applies to comments posted by the tool itself (marked with the fingerprint), not arbitrary developer discussions in unrelated threads.
+
 ## Data Locations
 
 - **Config:** `~/.pr-reviewer/config.json` (0600 permissions—credentials)
