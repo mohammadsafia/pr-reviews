@@ -7,12 +7,20 @@ export interface PrRef {
   id: number
 }
 
+export interface ExistingComment {
+  path?: string
+  line?: number
+  body: string
+  resolved: boolean
+}
+
 /** Structural shape the app depends on for talking to a PR host — implemented by both
  * BitbucketClient and GitHubClient. Supersedes the old bitbucket-only `BitbucketLike`. */
 export interface PrProviderClient {
   getPullRequest(pr: PrRef): Promise<PrMeta>
   getDiff(pr: PrRef): Promise<string>
   postInlineComment(pr: PrRef, c: { path: string; line: number; text: string }): Promise<number>
+  listComments(pr: PrRef): Promise<ExistingComment[]>
   cloneUrl(pr: PrRef, protocol?: 'ssh' | 'https'): string
 }
 

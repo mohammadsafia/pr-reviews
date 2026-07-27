@@ -64,4 +64,26 @@ describe('BitbucketClient', () => {
     const c = new BitbucketClient('e@x.io', 't0k', fakeFetch(200, {}))
     expect(c.cloneUrl(pr, 'https')).toBe('https://e%40x.io:t0k@bitbucket.org/ws/r.git')
   })
+
+  it('listComments maps body, inline path/line, and resolution across pages', async () => {
+    const page1 = {
+      values: [
+        { content: { raw: 'open one <!-- prr-fp:aaaaaaaaaaaa -->' }, inline: { path: 'a.ts', to: 5 }, resolution: null },
+        { content: { raw: 'resolved one <!-- prr-fp:bbbbbbbbbbbb -->' }, inline: { path: 'b.ts', to: 9 }, resolution: { type: 'resolved' } },
+      ],
+      next: 'https://api.bitbucket.org/2.0/next-page',
+    }
+    const page2 = { values: [{ content: { raw: 'general no-inline' }, resolution: null }] }
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(page1), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(page2), { status: 200 }))
+    const client = new BitbucketClient('e@x.io', 'tok', fetchFn as any)
+    const out = await client.listComments({ provider: 'bitbucket', workspace: 'w', repo: 'r', id: 3 })
+    expect(out).toEqual([
+      { path: 'a.ts', line: 5, body: 'open one <!-- prr-fp:aaaaaaaaaaaa -->', resolved: false },
+      { path: 'b.ts', line: 9, body: 'resolved one <!-- prr-fp:bbbbbbbbbbbb -->', resolved: true },
+      { path: undefined, line: undefined, body: 'general no-inline', resolved: false },
+    ])
+    expect(fetchFn).toHaveBeenCalledTimes(2)
+  })
 })

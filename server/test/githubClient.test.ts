@@ -98,4 +98,42 @@ describe('GitHubClient', () => {
     const c = new GitHubClient('tok123', fakeFetch(200, {}))
     expect(c.cloneUrl(pr, 'https')).toBe('https://x-access-token:tok123@github.com/acme/r.git')
   })
+
+  it('listComments flattens review threads with isResolved across pages', async () => {
+    const page1 = {
+      data: { repository: { pullRequest: { reviewThreads: {
+        pageInfo: { hasNextPage: true, endCursor: 'C1' },
+        nodes: [
+          { isResolved: false, path: 'a.ts', line: 5, comments: { nodes: [{ body: 'open <!-- prr-fp:aaaaaaaaaaaa -->' }] } },
+          { isResolved: true, path: 'b.ts', line: 9, comments: { nodes: [{ body: 'done <!-- prr-fp:bbbbbbbbbbbb -->' }] } },
+        ],
+      } } } },
+    }
+    const page2 = {
+      data: { repository: { pullRequest: { reviewThreads: {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: [{ isResolved: false, path: 'c.ts', line: 1, comments: { nodes: [{ body: 'p2 <!-- prr-fp:cccccccccccc -->' }] } }],
+      } } } },
+    }
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(page1), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(page2), { status: 200 }))
+    const client = new GitHubClient('tok', fetchFn as any)
+    const out = await client.listComments({ provider: 'github', workspace: 'o', repo: 'r', id: 7 })
+    expect(out).toEqual([
+      { path: 'a.ts', line: 5, body: 'open <!-- prr-fp:aaaaaaaaaaaa -->', resolved: false },
+      { path: 'b.ts', line: 9, body: 'done <!-- prr-fp:bbbbbbbbbbbb -->', resolved: true },
+      { path: 'c.ts', line: 1, body: 'p2 <!-- prr-fp:cccccccccccc -->', resolved: false },
+    ])
+    const firstCall = (fetchFn.mock.calls[0][0] as string)
+    expect(firstCall).toBe('https://api.github.com/graphql')
+  })
+
+  it('listComments maps GitHub 401 to PrAuthError', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response('{}', { status: 401 }))
+    const client = new GitHubClient('bad', fetchFn as any)
+    await expect(
+      client.listComments({ provider: 'github', workspace: 'o', repo: 'r', id: 7 }),
+    ).rejects.toBeInstanceOf(PrAuthError)
+  })
 })

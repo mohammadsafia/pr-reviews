@@ -1,5 +1,5 @@
 import { PrAuthError } from '../providers/errors.js'
-import type { PrMeta, PrProviderClient, PrRef } from '../types.js'
+import type { ExistingComment, PrMeta, PrProviderClient, PrRef } from '../types.js'
 
 const API = 'https://api.github.com'
 
@@ -87,6 +87,37 @@ export class GitHubClient implements PrProviderClient {
       }),
     })
     return ((await res.json()) as any).id as number
+  }
+
+  async listComments(pr: PrRef): Promise<ExistingComment[]> {
+    const query = `query($owner:String!,$repo:String!,$number:Int!,$cursor:String){
+      repository(owner:$owner,name:$repo){ pullRequest(number:$number){
+        reviewThreads(first:100, after:$cursor){
+          pageInfo{ hasNextPage endCursor }
+          nodes{ isResolved path line comments(first:1){ nodes{ body } } }
+        } } } }`
+    const out: ExistingComment[] = []
+    let cursor: string | null = null
+    for (;;) {
+      const res = await this.request(`${API}/graphql`, {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          variables: { owner: pr.workspace, repo: pr.repo, number: pr.id, cursor },
+        }),
+      })
+      const json = (await res.json()) as any
+      if (json.errors) throw new Error(`GitHub GraphQL error: ${JSON.stringify(json.errors)}`)
+      const threads = json.data?.repository?.pullRequest?.reviewThreads
+      for (const t of threads?.nodes ?? []) {
+        for (const c of t.comments?.nodes ?? []) {
+          out.push({ path: t.path ?? undefined, line: t.line ?? undefined, body: c.body ?? '', resolved: !!t.isResolved })
+        }
+      }
+      if (!threads?.pageInfo?.hasNextPage) break
+      cursor = threads.pageInfo.endCursor
+    }
+    return out
   }
 
   cloneUrl(pr: PrRef, protocol: 'ssh' | 'https' = 'ssh'): string {

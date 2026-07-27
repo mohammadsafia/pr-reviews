@@ -251,6 +251,7 @@ describe('app', () => {
         throw new Error('not used')
       },
       cloneUrl: () => 'not used',
+      listComments: async () => [],
       postInlineComment: async () => {
         call++
         if (call === 1) return 111

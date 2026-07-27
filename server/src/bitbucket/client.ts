@@ -1,5 +1,5 @@
 import { PrAuthError } from '../providers/errors.js'
-import type { PrMeta, PrProviderClient, PrRef } from '../types.js'
+import type { ExistingComment, PrMeta, PrProviderClient, PrRef } from '../types.js'
 
 const API = 'https://api.bitbucket.org/2.0'
 
@@ -69,6 +69,25 @@ export class BitbucketClient implements PrProviderClient {
       body: JSON.stringify({ content: { raw: c.text }, inline: { path: c.path, to: c.line } }),
     })
     return ((await res.json()) as any).id as number
+  }
+
+  async listComments(pr: PrRef): Promise<ExistingComment[]> {
+    const out: ExistingComment[] = []
+    let url: string | undefined = `${this.prBase(pr)}/comments?pagelen=100`
+    while (url) {
+      const page = (await (await this.request(url)).json()) as any
+      for (const c of page.values ?? []) {
+        if (c.deleted) continue
+        out.push({
+          path: c.inline?.path,
+          line: c.inline?.to,
+          body: c.content?.raw ?? '',
+          resolved: c.resolution != null,
+        })
+      }
+      url = page.next
+    }
+    return out
   }
 
   cloneUrl(pr: PrRef, protocol: 'ssh' | 'https' = 'ssh'): string {

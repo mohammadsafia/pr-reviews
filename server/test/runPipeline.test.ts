@@ -75,6 +75,7 @@ function fakeClient(meta: PrMeta, diff: string): PrProviderClient {
     getPullRequest: async () => meta,
     getDiff: async () => diff,
     postInlineComment: async () => 1,
+    listComments: async () => [],
     cloneUrl: () => origin,
   }
 }
