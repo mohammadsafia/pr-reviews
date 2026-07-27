@@ -43,7 +43,7 @@ Two honest limitations: finding matching is best-effort and relies on the invisi
 
 ### Recovery
 
-If your Claude login expires mid-run (e.g., Claude Code session expires or `ANTHROPIC_API_KEY` becomes invalid), the run view shows a distinct banner: "Your Claude login appears to have expired — re-authenticate (run `/login` or restart with a valid `ANTHROPIC_API_KEY`), then retry." This replaces raw API errors with a clear recovery path.
+If your Claude login expires mid-run (e.g., Claude Code session expires or `ANTHROPIC_API_KEY` becomes invalid), a distinct banner appears alongside the error, telling you to re-authenticate and retry: "Your Claude login appears to have expired — re-authenticate (run `/login` or restart with a valid `ANTHROPIC_API_KEY`), then retry." The usual error display (the "Run failed" alert and per-skill error chips) still shows too — the banner is an addition, not a replacement.
 
 Additionally, any run with one or more failed skills offers a "Retry failed skills (N)" button that starts a new run scoped to only those skills. The originally successful skills' findings remain in the first run; you don't re-analyze what already passed. This is especially useful when transient failures (like a temporary network hiccup in a subagent) cause skill timeouts on an otherwise good PR.
 

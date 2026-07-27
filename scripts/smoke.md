@@ -33,7 +33,7 @@
 11. **Login-expiry recovery and retry-failed-skills**:
     - Invalidate your Claude authentication: either exit Claude Code (`exit` in the CLI) or temporarily set `ANTHROPIC_API_KEY=invalid` in your shell.
     - Home → paste a PR URL, select review skills, Run Review.
-    - The run view should display a distinct banner: "Your Claude login appears to have expired — re-authenticate (run `/login` or restart with a valid `ANTHROPIC_API_KEY`), then retry." (NOT a raw API error).
+    - Confirm the login-expiry warning banner appears (in addition to the usual "Run failed" error): "Your Claude login appears to have expired — re-authenticate (run `/login` or restart with a valid `ANTHROPIC_API_KEY`), then retry." Both the banner and the standard failed-run error text/skill chips are expected together — don't report a false failure if you see the raw error too.
     - Below the banner, confirm a "Retry failed skills (N)" button appears (where N is the count of failed skills).
     - Re-authenticate: exit the tool, run `/login` (or restore your `ANTHROPIC_API_KEY`), and return to the run view.
     - Click "Retry failed skills (N)" → a new run should start with a fresh live feed, showing only the previously-failed skills being re-analyzed.
