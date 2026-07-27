@@ -91,6 +91,26 @@ export function partitionFindingsByVerdict(
   }
 }
 
+/** Looks up the preview-computed status for a single finding index. Returns 'new' when the
+ * preview hasn't loaded yet (null) or when the index isn't present in preview.statuses — the
+ * latter also covers the dedupeChecked:false fallback, since that path always yields either an
+ * empty statuses array (client-side network failure) or statuses that already mark everything
+ * 'new' (server-side dedupe failure). */
+export function statusForIndex(
+  preview: PostPreview | null,
+  index: number,
+): 'new' | 'already-posted' | 'resolved' {
+  if (!preview) return 'new'
+  return preview.statuses.find((s) => s.index === index)?.status ?? 'new'
+}
+
+/** The checked indexes that are actually eligible to post — i.e. still 'new' per the preview.
+ * This is what gets sent to postComments; already-posted/resolved findings are excluded even
+ * if checked, since posting them again would just be skipped server-side. */
+export function postableIndexes(checked: Set<number>, preview: PostPreview | null): number[] {
+  return [...checked].filter((i) => statusForIndex(preview, i) === 'new')
+}
+
 export function groupFindingsBySeverity(
   findings: Finding[],
 ): { severity: Severity; items: { finding: Finding; index: number }[] }[] {
@@ -210,14 +230,9 @@ export function RunView() {
   // (dedupeChecked === false), every finding is treated as 'new' — dedupeChecked === false
   // additionally surfaces a warning so the user knows nothing is being de-duplicated.
   const dedupeChecked = preview?.dedupeChecked ?? true
-  const statusByIndex = new Map((preview?.statuses ?? []).map((s) => [s.index, s.status]))
-  function statusFor(index: number): 'new' | 'already-posted' | 'resolved' {
-    if (!dedupeChecked) return 'new'
-    return statusByIndex.get(index) ?? 'new'
-  }
 
   async function post() {
-    const sentIndexes = [...checked].filter((i) => statusFor(i) === 'new')
+    const sentIndexes = postableIndexes(checked, preview)
     try {
       const result = await postComments(id, sentIndexes)
       const { message, remainingChecked } = applyPostResult(sentIndexes, result, checked)
@@ -233,7 +248,7 @@ export function RunView() {
   const selectedItems = run.findings
     .map((finding, index) => ({ finding, index }))
     .filter(({ index }) => checked.has(index))
-  const newCount = selectedItems.filter(({ index }) => statusFor(index) === 'new').length
+  const newCount = postableIndexes(checked, preview).length
 
   const { confirmed, unverified } = partitionFindingsByVerdict(run.findings)
 
@@ -378,7 +393,7 @@ export function RunView() {
             )}
             <ul className="flex max-h-96 flex-col gap-4 overflow-y-auto">
               {selectedItems.map(({ finding, index }) => {
-                const status = statusFor(index)
+                const status = statusForIndex(preview, index)
                 return (
                   <li
                     key={index}

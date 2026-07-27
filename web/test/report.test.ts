@@ -4,8 +4,11 @@ import {
   formatCommentBody,
   groupFindingsBySeverity,
   partitionFindingsByVerdict,
+  postableIndexes,
+  statusForIndex,
 } from '../src/pages/RunView.js'
 import type { Finding } from '../src/types.js'
+import type { PostPreview } from '../src/api.js'
 
 const f = (severity: Finding['severity'], file: string, verdict: Finding['verdict'] = 'confirmed'): Finding => ({
   file,
@@ -132,5 +135,53 @@ describe('applyPostResult', () => {
     // Both indexes should be cleared: 0 because it's skipped (already exists on the PR), 1
     // because it actually succeeded — but NOT via the wrong attribution.
     expect(remainingChecked).toEqual(new Set())
+  })
+})
+
+describe('statusForIndex', () => {
+  it('returns the preview status for an index present in preview.statuses', () => {
+    const preview: PostPreview = {
+      statuses: [
+        { index: 0, status: 'already-posted' },
+        { index: 1, status: 'resolved' },
+        { index: 2, status: 'new' },
+      ],
+      dedupeChecked: true,
+    }
+    expect(statusForIndex(preview, 0)).toBe('already-posted')
+    expect(statusForIndex(preview, 1)).toBe('resolved')
+    expect(statusForIndex(preview, 2)).toBe('new')
+  })
+
+  it('returns new when preview is null', () => {
+    expect(statusForIndex(null, 5)).toBe('new')
+  })
+
+  it('returns new when the index is not present in preview.statuses (dedupeChecked:false fallback)', () => {
+    const preview: PostPreview = { statuses: [], dedupeChecked: false }
+    expect(statusForIndex(preview, 0)).toBe('new')
+  })
+})
+
+describe('postableIndexes', () => {
+  it('keeps only checked indexes whose preview status is new', () => {
+    const preview: PostPreview = {
+      statuses: [
+        { index: 0, status: 'already-posted' },
+        { index: 1, status: 'resolved' },
+        { index: 2, status: 'new' },
+      ],
+      dedupeChecked: true,
+    }
+    expect(postableIndexes(new Set([0, 1, 2]), preview)).toEqual([2])
+  })
+
+  it('treats every checked index as postable when preview is null', () => {
+    expect(postableIndexes(new Set([0, 1, 2]), null)).toEqual([0, 1, 2])
+  })
+
+  it('treats every checked index as postable when dedupeChecked is false with empty statuses', () => {
+    const preview: PostPreview = { statuses: [], dedupeChecked: false }
+    expect(postableIndexes(new Set([0, 1, 2]), preview)).toEqual([0, 1, 2])
   })
 })
