@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { FindingCard } from '@/components/FindingCard'
+import { failedSkillNames, runHasLoginExpiry } from '@/lib/runErrors'
 import { ReviewConsole } from '@/components/ReviewConsole'
 import { StatusBadge } from '@/components/StatusBadge'
 
@@ -225,6 +226,22 @@ export function RunView() {
     if (res.id) navigate(`/runs/${res.id}`)
   }
 
+  async function retryFailedSkills() {
+    if (!run) return
+    const url =
+      run.pr.provider === 'github'
+        ? `https://github.com/${run.pr.workspace}/${run.pr.repo}/pull/${run.pr.id}`
+        : `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`
+    const res = await createRun({
+      url,
+      skills: failedSkillNames(run),
+      focus: run.focus,
+      verify: run.verify,
+      force: true,
+    })
+    if (res.id) navigate(`/runs/${res.id}`)
+  }
+
   // Once the preview loads, every selected finding gets a New/Already posted/Resolved status;
   // while it's still loading (preview === null) or the server couldn't check the PR
   // (dedupeChecked === false), every finding is treated as 'new' — dedupeChecked === false
@@ -275,6 +292,28 @@ export function RunView() {
 
       <ReviewConsole events={live} running={active} startedAt={run.createdAt} finishedAt={run.finishedAt} />
 
+      {runHasLoginExpiry(run) && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <Alert.Title>Your Claude login appears to have expired</Alert.Title>
+          <Alert.Description>
+            The review agent authenticates with your Claude login. Re-authenticate (run{' '}
+            <code>/login</code>, or restart the tool with a valid <code>ANTHROPIC_API_KEY</code>), then retry.
+          </Alert.Description>
+        </Alert>
+      )}
+
+      {run.status === 'completed' && failedSkillNames(run).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground text-sm">
+            {failedSkillNames(run).length} skill{failedSkillNames(run).length === 1 ? '' : 's'} failed on this run.
+          </span>
+          <Button variant="secondary" size="sm" className="w-fit" onClick={retryFailedSkills}>
+            Retry failed skills ({failedSkillNames(run).length})
+          </Button>
+        </div>
+      )}
+
       {run.skillResults.length > 0 && (
         <div className="flex flex-col gap-2">
           <h2 className="text-muted-foreground text-sm font-medium">Skill runs</h2>
@@ -316,9 +355,16 @@ export function RunView() {
           <Alert.Title>Run failed</Alert.Title>
           <Alert.Description className="flex flex-col gap-2">
             <span>{run.error}</span>
-            <Button variant="secondary" size="sm" className="w-fit" onClick={retry}>
-              Retry run
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" className="w-fit" onClick={retry}>
+                Retry run
+              </Button>
+              {failedSkillNames(run).length > 0 && (
+                <Button variant="secondary" size="sm" className="w-fit" onClick={retryFailedSkills}>
+                  Retry failed skills ({failedSkillNames(run).length})
+                </Button>
+              )}
+            </div>
           </Alert.Description>
         </Alert>
       )}
