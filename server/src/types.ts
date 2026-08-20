@@ -71,6 +71,8 @@ export interface RunRecord {
   skills: string[]
   focus?: string
   verify: boolean
+  /** Review depth used for this run. Absent on runs stored before depth modes existed. */
+  depth?: Depth
   status: RunStatus
   createdAt: string
   finishedAt?: string

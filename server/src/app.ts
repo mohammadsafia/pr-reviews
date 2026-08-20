@@ -7,16 +7,20 @@ import { PrAuthError } from './providers/errors.js'
 import { makeClient } from './providers/factory.js'
 import { parsePrUrl } from './providers/parsePrUrl.js'
 import { RepoCache } from './repos/cache.js'
+import { formatComment } from './review/comment.js'
+import { writeContextPack } from './review/contextPack.js'
 import { dedupeFindings } from './review/dedup.js'
 import { commentMarker, fingerprint, parseFingerprint } from './review/fingerprint.js'
 import { countDiffLines } from './review/findings.js'
+import { groupSkills } from './review/grouping.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
-import { verifyFinding } from './review/verify.js'
+import { verifyFindingsBatch } from './review/verify.js'
 import { makeSerialQueue } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
 import { RunStore } from './store/runs.js'
 import type {
+  Depth,
   Finding,
   PrMeta,
   PrProviderClient,
@@ -191,7 +195,14 @@ export function buildApp(
   })
 
   app.post('/api/runs', async (req, reply) => {
-    const body = req.body as { url: string; skills: string[]; focus?: string; force?: boolean; verify?: boolean }
+    const body = req.body as {
+      url: string
+      skills: string[]
+      focus?: string
+      force?: boolean
+      verify?: boolean
+      depth?: Depth
+    }
     const c = cfg()
     let pr: PrRef
     try {
@@ -216,21 +227,33 @@ export function buildApp(
         diffLines,
       })
     }
+    const DEPTHS: readonly Depth[] = ['thorough', 'balanced', 'economy']
+    if (body.depth !== undefined && !DEPTHS.includes(body.depth)) {
+      return reply.code(400).send({ error: `Invalid depth: ${String(body.depth)}` })
+    }
+    const depth: Depth = body.depth ?? c.defaultDepth
     const run = store().create({
       pr,
       prTitle: meta.title,
       skills: body.skills,
       focus: body.focus,
       verify: body.verify !== false,
+      depth,
       status: 'queued',
     })
-    runQueue.push(() => executeRun(run.id, { pr, meta, diff, body }))
+    runQueue.push(() => executeRun(run.id, { pr, meta, diff, depth, body }))
     return reply.code(202).send({ id: run.id })
   })
 
   async function executeRun(
     runId: string,
-    ctx: { pr: PrRef; meta: PrMeta; diff: string; body: { skills: string[]; focus?: string; verify?: boolean } },
+    ctx: {
+      pr: PrRef
+      meta: PrMeta
+      diff: string
+      depth: Depth
+      body: { skills: string[]; focus?: string; verify?: boolean }
+    },
   ): Promise<void> {
     let s: RunStore | undefined
     let run: RunRecord | undefined
@@ -254,48 +277,60 @@ export function buildApp(
         sourceBranch: ctx.meta.sourceBranch,
         commit: ctx.meta.sourceCommit,
       })
+      emit({ kind: 'status', text: 'Writing review context…', at: new Date().toISOString() })
+      // Throws → the outer catch fails the run: never review without a fresh context pack.
+      writeContextPack(cwd, ctx.meta, ctx.diff)
       emit({ kind: 'status', text: 'Starting review agent…', at: new Date().toISOString() })
       const all = scanSkillDirs(c.skillDirs)
       const selected = all
         .filter((sk) => ctx.body.skills.includes(sk.name))
         .map((sk) => ({ name: sk.name, content: readSkillContent(sk) }))
-      // Each selected skill runs in its own subagent, in parallel, with no concurrency cap.
-      // When nothing is selected, fall back to a single synthetic "general" unit (skills: []
-      // passed to runReview) so the run behaves as a plain review, same as before this change.
-      const units = selected.length > 0 ? selected : [{ name: 'general', content: '' }]
+      // Skills are chunked into session groups by the run's depth (thorough=1, balanced=3,
+      // economy=all); groups run in parallel with no concurrency cap. When nothing is
+      // selected, fall back to a single synthetic "general" unit so the run behaves as a
+      // plain review.
+      const groups: { name: string; content: string }[][] =
+        selected.length > 0 ? groupSkills(selected, ctx.depth) : [[{ name: 'general', content: '' }]]
 
       const outcomes = await Promise.all(
-        units.map(async (unit): Promise<{ result: SkillRunResult; findings: Finding[] }> => {
-          const wrappedEmit = (e: RunEvent) => emit({ ...e, skill: unit.name })
+        groups.map(async (group): Promise<{ results: SkillRunResult[]; findings: Finding[] }> => {
+          const label = group.map((g) => g.name).join(', ')
+          const wrappedEmit = (e: RunEvent) => emit({ ...e, skill: label })
           try {
             wrappedEmit({
               kind: 'status',
-              text: `Reviewing with skill: ${unit.name}…`,
+              text: `Reviewing with: ${label}…`,
               at: new Date().toISOString(),
             })
             const findings = await runReview(
               {
                 meta: ctx.meta,
-                diff: ctx.diff,
-                skills: unit.name === 'general' ? [] : [{ name: unit.name, content: unit.content }],
+                skills: group[0].name === 'general' ? [] : group,
                 focus: ctx.body.focus,
                 cwd,
                 model: c.model,
+                reformatModel: c.verifyModel,
               },
               wrappedEmit,
               agentQuery,
             )
-            // Force the attribution rather than trusting whatever the model put in the
-            // finding's own "skills" field — guarantees correct grouping even if it mislabels.
-            for (const f of findings) f.skills = [unit.name]
             return {
-              result: { skill: unit.name, status: 'completed', findingCount: findings.length },
+              results: group.map((g) => ({
+                skill: g.name,
+                status: 'completed' as const,
+                findingCount: findings.filter((f) => f.skills.includes(g.name)).length,
+              })),
               findings,
             }
           } catch (err: any) {
             wrappedEmit({ kind: 'error', text: err.message, at: new Date().toISOString() })
             return {
-              result: { skill: unit.name, status: 'failed', findingCount: 0, error: err.message },
+              results: group.map((g) => ({
+                skill: g.name,
+                status: 'failed' as const,
+                findingCount: 0,
+                error: err.message,
+              })),
               findings: [],
             }
           }
@@ -303,22 +338,24 @@ export function buildApp(
       )
 
       const merged = outcomes.flatMap((o) => o.findings)
-      run.skillResults = outcomes.map((o) => o.result)
-      const allFailed = outcomes.every((o) => o.result.status === 'failed')
+      run.skillResults = outcomes.flatMap((o) => o.results)
+      const allFailed = run.skillResults.every((r) => r.status === 'failed')
 
       let findings = dedupeFindings(merged)
       const doVerify = ctx.body.verify !== false
       run.verify = doVerify
       if (doVerify && findings.length > 0 && !allFailed) {
         emit({ kind: 'status', text: `Verifying ${findings.length} findings…`, at: new Date().toISOString() })
-        await Promise.all(
-          findings.map((f) =>
-            verifyFinding(f, { meta: ctx.meta, diff: ctx.diff, cwd, model: c.model }, emit, agentQuery).then((v) => {
-              f.verdict = v.verdict
-              f.verifierReason = v.reason
-            }),
-          ),
+        const verdicts = await verifyFindingsBatch(
+          findings,
+          { meta: ctx.meta, cwd, model: c.verifyModel },
+          emit,
+          agentQuery,
         )
+        findings.forEach((f, i) => {
+          f.verdict = verdicts[i].verdict
+          if (verdicts[i].reason) f.verifierReason = verdicts[i].reason
+        })
       }
       const RANK: Record<string, number> = { high: 3, medium: 2, low: 1, info: 0 }
       findings.sort((a, b) => {
@@ -329,7 +366,7 @@ export function buildApp(
 
       if (allFailed) {
         run.status = 'failed'
-        run.error = `All ${outcomes.length} skill reviews failed`
+        run.error = `All ${run.skillResults.length} skill reviews failed`
       } else {
         run.status = 'completed'
       }
@@ -393,9 +430,7 @@ export function buildApp(
         skipped.push({ index: i, reason: fps.get(fp) ? 'resolved' : 'already-posted' })
         continue
       }
-      const text =
-        `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}` +
-        `\n\n${commentMarker(fp)}`
+      const text = `${formatComment(f)}\n\n${commentMarker(fp)}`
       try {
         const commentId = await client.postInlineComment(run.pr, { path: f.file, line: f.line, text })
         posted.push(commentId)

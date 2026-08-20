@@ -80,15 +80,30 @@ function fakeClient(meta: PrMeta, diff: string): PrProviderClient {
   }
 }
 
-// Every finding now goes through a verify pass by default (see the three new tests below),
-// so the shared fakes must answer the verifier's prompt (recognizable by its distinctive
-// "adversarially verifying" text) as well as the initial per-skill review prompt — otherwise
-// every pre-existing test in this file would pick up a spurious verifierReason from the
-// fail-open "unparseable verdict" fallback and its exact-equality assertions would break.
+/** Answers a batch-verify prompt by parsing the findings fence it embeds and confirming
+ * every index (verdictFor overrides per summary). Reasons are omitted for confirmed so
+ * exact-equality assertions on findings stay clean. */
+function batchVerdicts(
+  prompt: string,
+  verdictFor: (summary: string) => 'confirmed' | 'unverified' = () => 'confirmed',
+): string {
+  const items = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(prompt)![1]) as { index: number; summary: string }[]
+  const verdicts = items.map((it) => {
+    const verdict = verdictFor(it.summary)
+    return verdict === 'confirmed' ? { index: it.index, verdict } : { index: it.index, verdict, reason: 'nope' }
+  })
+  return '```json\n' + JSON.stringify(verdicts) + '\n```'
+}
+
+// Every finding now goes through a verify pass by default, so the shared fakes must answer
+// the batched verifier's prompt (recognizable by its distinctive "adversarially verifying"
+// text) as well as the initial review prompt — otherwise every pre-existing test in this
+// file would pick up a spurious fail-open verifierReason and its exact-equality assertions
+// would break.
 function fakeAgent(findings: unknown[]): AgentQuery {
   return async function* (prompt: string) {
     if (/adversarially verifying/.test(prompt)) {
-      yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed"}\n```' }
+      yield { type: 'result' as const, ok: true, text: batchVerdicts(prompt) }
       return
     }
     yield { type: 'assistant' as const, text: 'reviewing' }
@@ -103,7 +118,7 @@ function fakeAgent(findings: unknown[]): AgentQuery {
 function fakeAgentPerSkill(bySkill: Record<string, unknown[] | 'fail'>): AgentQuery {
   return async function* (prompt: string) {
     if (/adversarially verifying/.test(prompt)) {
-      yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed"}\n```' }
+      yield { type: 'result' as const, ok: true, text: batchVerdicts(prompt) }
       return
     }
     const match = /## Skill: (\S+)/.exec(prompt)
@@ -165,11 +180,10 @@ describe('run pipeline integration', () => {
     const { id } = createRes.json()
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
-    // No skills selected -> the synthetic "general" unit runs, and executeRun force-attributes
-    // finding.skills = [unit.name] regardless of what the (fixture) finding claims, so it
-    // comes back as ["general"] rather than the "review-code" the fixture data sets.
+    // No skills selected -> the synthetic "general" unit runs with validSkills ['general'],
+    // so the fixture's "review-code" label is reattributed to ["general"].
     const { skill: _skill1, ...findingRest } = finding
-    expect(run.findings).toEqual([{ ...findingRest, skills: ['general'], verdict: 'confirmed' }])
+    expect(run.findings).toEqual([{ ...findingRest, example: '', skills: ['general'], verdict: 'confirmed' }])
     expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 
@@ -232,19 +246,20 @@ describe('run pipeline integration', () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/runs',
-      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'thorough' },
     })
     expect(createRes.statusCode).toBe(202)
     const { id } = createRes.json()
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
-    // Force-attribution overrides whatever skill label the agent claimed.
+    // The "wrong-label" skill isn't in either session's validSkills, so each finding is
+    // reattributed to its own session's (single) skill.
     const { skill: _skillA, ...findingARest } = findingA
     const { skill: _skillB, ...findingBRest } = findingB
     expect(run.findings).toEqual(
       expect.arrayContaining([
-        { ...findingARest, skills: ['skill-a'], verdict: 'confirmed' },
-        { ...findingBRest, skills: ['skill-b'], verdict: 'confirmed' },
+        { ...findingARest, example: '', skills: ['skill-a'], verdict: 'confirmed' },
+        { ...findingBRest, example: '', skills: ['skill-b'], verdict: 'confirmed' },
       ]),
     )
     expect(run.findings).toHaveLength(2)
@@ -281,14 +296,14 @@ describe('run pipeline integration', () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/runs',
-      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'thorough' },
     })
     expect(createRes.statusCode).toBe(202)
     const { id } = createRes.json()
     const run = await pollRun(app, id)
     expect(run.status).toBe('completed')
     const { skill: _skillA2, ...findingARest2 } = findingA
-    expect(run.findings).toEqual([{ ...findingARest2, skills: ['skill-a'], verdict: 'confirmed' }])
+    expect(run.findings).toEqual([{ ...findingARest2, example: '', skills: ['skill-a'], verdict: 'confirmed' }])
     const bySkill = Object.fromEntries(run.skillResults.map((r: any) => [r.skill, r]))
     expect(bySkill['skill-a']).toEqual({ skill: 'skill-a', status: 'completed', findingCount: 1 })
     expect(bySkill['skill-b'].status).toBe('failed')
@@ -307,7 +322,7 @@ describe('run pipeline integration', () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/runs',
-      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'thorough' },
     })
     expect(createRes.statusCode).toBe(202)
     const { id } = createRes.json()
@@ -348,7 +363,7 @@ describe('run pipeline integration', () => {
     expect(run.status).toBe('completed')
     expect(run.pr).toEqual({ provider: 'github', workspace: 'ws', repo: 'repo', id: 1 })
     const { skill: _skill2, ...findingRest2 } = finding
-    expect(run.findings).toEqual([{ ...findingRest2, skills: ['general'], verdict: 'confirmed' }])
+    expect(run.findings).toEqual([{ ...findingRest2, example: '', skills: ['general'], verdict: 'confirmed' }])
     expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 
@@ -369,7 +384,7 @@ describe('run pipeline integration', () => {
     const agent: AgentQuery = async function* (prompt: string) {
       if (/adversarially verifying/.test(prompt)) {
         verifyCalls++
-        yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed","reason":"ok"}\n```' }
+        yield { type: 'result' as const, ok: true, text: batchVerdicts(prompt) }
         return
       }
       yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
@@ -382,7 +397,7 @@ describe('run pipeline integration', () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/runs',
-      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'thorough' },
     })
     expect(createRes.statusCode).toBe(202)
     const { id } = createRes.json()
@@ -461,10 +476,10 @@ describe('run pipeline integration', () => {
     }
     const agent: AgentQuery = async function* (prompt: string) {
       if (/adversarially verifying/.test(prompt)) {
-        if (/drop/.test(prompt)) {
-          yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"unverified","reason":"nope"}\n```' }
-        } else {
-          yield { type: 'result' as const, ok: true, text: '```json\n{"verdict":"confirmed","reason":"yep"}\n```' }
+        yield {
+          type: 'result' as const,
+          ok: true,
+          text: batchVerdicts(prompt, (s) => (s === 'drop' ? 'unverified' : 'confirmed')),
         }
         return
       }
@@ -481,7 +496,7 @@ describe('run pipeline integration', () => {
     const createRes = await app.inject({
       method: 'POST',
       url: '/api/runs',
-      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'] },
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'thorough' },
     })
     expect(createRes.statusCode).toBe(202)
     const { id } = createRes.json()
@@ -492,5 +507,94 @@ describe('run pipeline integration', () => {
     expect(run.findings[0].verdict).toBe('confirmed')
     expect(run.findings[1].summary).toBe('drop')
     expect(run.findings[1].verdict).toBe('unverified')
+  })
+
+  it('rejects an invalid depth with 400', async () => {
+    const path = tempConfig()
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      agentQuery: fakeAgent([]),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], depth: 'bogus' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('balanced depth reviews grouped skills in ONE session, attributes per skill, and never embeds the diff', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const diff = '+line1\n+line2\n'
+    const mk = (skill: string, line: number) => ({
+      file: 'a.txt', line, severity: 'low', category: 'style', summary: `from ${skill}`,
+      detail: 'd', suggestion: 'x', skill,
+    })
+    const reviewPrompts: string[] = []
+    const agent: AgentQuery = async function* (prompt: string) {
+      if (/adversarially verifying/.test(prompt)) {
+        yield { type: 'result' as const, ok: true, text: batchVerdicts(prompt) }
+        return
+      }
+      reviewPrompts.push(prompt)
+      yield {
+        type: 'result' as const,
+        ok: true,
+        text: '```json\n' + JSON.stringify([mk('skill-a', 1), mk('skill-b', 2)]) + '\n```',
+      }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'balanced' },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.depth).toBe('balanced')
+    expect(reviewPrompts).toHaveLength(1) // one grouped session, not two
+    expect(reviewPrompts[0]).toContain('## Skill: skill-a')
+    expect(reviewPrompts[0]).toContain('## Skill: skill-b')
+    expect(reviewPrompts[0]).toContain('.pr-review/diff.patch')
+    expect(reviewPrompts[0]).not.toContain('+line1') // the diff body stays out of the prompt
+    const bySkill = Object.fromEntries(run.skillResults.map((r: any) => [r.skill, r]))
+    expect(bySkill['skill-a']).toEqual({ skill: 'skill-a', status: 'completed', findingCount: 1 })
+    expect(bySkill['skill-b']).toEqual({ skill: 'skill-b', status: 'completed', findingCount: 1 })
+    expect(run.transcript.some((e: any) => e.skill === 'skill-a, skill-b')).toBe(true)
+  })
+
+  it('a failed grouped session marks every skill in the group failed', async () => {
+    const path = tempConfigWithSkills(['skill-a', 'skill-b'])
+    const agent: AgentQuery = async function* (prompt: string) {
+      if (/adversarially verifying/.test(prompt)) {
+        yield { type: 'result' as const, ok: true, text: batchVerdicts(prompt) }
+        return
+      }
+      yield { type: 'result' as const, ok: false, text: 'boom' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: ['skill-a', 'skill-b'], depth: 'balanced' },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('failed')
+    expect(run.error).toMatch(/all 2 skill reviews failed/i)
+    expect(run.skillResults).toHaveLength(2)
+    expect(run.skillResults.every((r: any) => r.status === 'failed')).toBe(true)
   })
 })
