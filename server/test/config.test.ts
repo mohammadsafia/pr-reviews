@@ -65,4 +65,24 @@ describe('config', () => {
     expect(cfg.diffWarnLines).toBe(500)
     expect(cfg.cloneProtocol).toBe('ssh')
   })
+
+  describe('verifyModel and defaultDepth', () => {
+    it('defaults verifyModel and defaultDepth when absent from stored config', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-config-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(path, JSON.stringify({ model: 'claude-sonnet-5' }))
+      const cfg = loadConfig(path)
+      expect(cfg.verifyModel).toBe('claude-haiku-4-5-20251001')
+      expect(cfg.defaultDepth).toBe('balanced')
+    })
+
+    it('preserves stored verifyModel and defaultDepth, and falls back per-field on invalid depth', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-config-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(path, JSON.stringify({ verifyModel: 'claude-sonnet-5', defaultDepth: 'bogus' }))
+      const cfg = loadConfig(path)
+      expect(cfg.verifyModel).toBe('claude-sonnet-5')
+      expect(cfg.defaultDepth).toBe('balanced') // invalid enum value → that field's default
+    })
+  })
 })

@@ -1,5 +1,7 @@
 export type Provider = 'bitbucket' | 'github'
 
+export type Depth = 'thorough' | 'balanced' | 'economy'
+
 export interface PrRef {
   provider: Provider
   workspace: string // Bitbucket workspace OR GitHub owner

@@ -14,6 +14,8 @@ export const ConfigSchema = z.object({
     .array(z.string())
     .default([join(home, 'Desktop/projects/forge-skills/skills'), join(home, '.claude/skills')]),
   model: z.string().default('claude-sonnet-5'),
+  verifyModel: z.string().default('claude-haiku-4-5-20251001'),
+  defaultDepth: z.enum(['thorough', 'balanced', 'economy']).default('balanced'),
   cacheDir: z.string().default(join(home, '.pr-reviewer', 'repos')),
   runsDir: z.string().default(join(home, '.pr-reviewer', 'runs')),
   diffWarnLines: z.number().int().positive().default(8000),
