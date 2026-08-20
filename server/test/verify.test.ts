@@ -1,77 +1,123 @@
 import { describe, it, expect } from 'vitest'
-import { verifyFinding } from '../src/review/verify.js'
-import type { Finding, RunEvent } from '../src/types.js'
+import { buildBatchVerifyPrompt, extractBatchVerdicts, verifyFindingsBatch } from '../src/review/verify.js'
+import type { AgentQuery } from '../src/review/runner.js'
+import type { Finding, PrMeta } from '../src/types.js'
 
-const finding: Finding = {
-  file: 'a.ts', line: 1, severity: 'high', category: 'bug',
-  summary: 'null deref', detail: 'x may be null', suggestion: 'guard it',
-  skills: ['review-code'], verdict: 'confirmed',
-}
-const ctx = { meta: { title: 'T', description: '', sourceBranch: 's', destinationBranch: 'd', sourceCommit: 'c' }, diff: 'd', cwd: '/tmp', model: 'm' }
+const meta: PrMeta = { title: 'T', description: '', sourceBranch: 'f', destinationBranch: 'main', sourceCommit: '' }
 
-function fakeAgent(resultText: string, ok = true) {
-  return async function* () {
-    yield { type: 'assistant' as const, text: 'checking' }
-    yield { type: 'result' as const, ok, text: resultText }
-  }
-}
+const mkFinding = (n: number): Finding => ({
+  file: `f${n}.ts`,
+  line: n + 1,
+  severity: 'low',
+  category: 'style',
+  summary: `finding ${n}`,
+  detail: 'd',
+  suggestion: 'x',
+  skills: ['s'],
+  verdict: 'confirmed',
+})
 
-/** Fake agent that returns a different result on each successive invocation (mirroring
- * runReview's reformat-retry pattern: first call unparseable, second call recoverable) and
- * tracks how many times it was invoked. */
-function fakeAgentSequence(...resultTexts: string[]) {
-  const state = { calls: 0 }
-  const agent = async function* () {
-    const text = resultTexts[Math.min(state.calls, resultTexts.length - 1)]
-    state.calls++
-    yield { type: 'assistant' as const, text: 'checking' }
-    yield { type: 'result' as const, ok: true, text }
-  }
-  return { agent, state }
-}
+const ok = (text: string) => ({ type: 'result' as const, ok: true, text })
 
-describe('verifyFinding', () => {
-  it('parses a confirmed verdict', async () => {
-    const v = await verifyFinding(finding, ctx, () => {}, fakeAgent('```json\n{"verdict":"confirmed","reason":"real"}\n```'))
-    expect(v.verdict).toBe('confirmed')
+describe('buildBatchVerifyPrompt', () => {
+  it('carries the dispatch phrase, pack pointers, and globally-indexed findings — no inline diff', () => {
+    const p = buildBatchVerifyPrompt([mkFinding(0), mkFinding(1)], meta, 20)
+    expect(p).toContain('adversarially verifying')
+    expect(p).toContain('.pr-review/diff.patch')
+    expect(p).toContain('"index": 20')
+    expect(p).toContain('"index": 21')
+    expect(p).not.toContain('```diff')
+  })
+})
+
+describe('extractBatchVerdicts', () => {
+  it('parses the last json fence into a map, first verdict wins on duplicates, bad entries skipped', () => {
+    const text =
+      'thinking…\n```json\n' +
+      JSON.stringify([
+        { index: 0, verdict: 'confirmed' },
+        { index: 1, verdict: 'unverified', reason: 'nope' },
+        { index: 1, verdict: 'confirmed' },
+        { index: 'bad', verdict: 'confirmed' },
+      ]) +
+      '\n```'
+    const m = extractBatchVerdicts(text)!
+    expect(m.get(0)).toEqual({ verdict: 'confirmed', reason: undefined })
+    expect(m.get(1)).toEqual({ verdict: 'unverified', reason: 'nope' })
+    expect(m.size).toBe(2)
   })
 
-  it('parses an unverified verdict with reason', async () => {
-    const v = await verifyFinding(finding, ctx, () => {}, fakeAgent('```json\n{"verdict":"unverified","reason":"line not in changed code"}\n```'))
-    expect(v.verdict).toBe('unverified')
-    expect(v.reason).toBe('line not in changed code')
+  it('returns undefined for unparseable text', () => {
+    expect(extractBatchVerdicts('no json at all')).toBeUndefined()
+    expect(extractBatchVerdicts('```json\n{"not":"array"}\n```')).toBeUndefined()
+  })
+})
+
+describe('verifyFindingsBatch', () => {
+  it('verifies all findings in one session and aligns verdicts with input order', async () => {
+    let calls = 0
+    const agent: AgentQuery = async function* (prompt) {
+      calls++
+      const items = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(prompt)![1]) as { index: number; summary: string }[]
+      yield ok(
+        '```json\n' +
+          JSON.stringify(
+            items.map((it) => ({
+              index: it.index,
+              verdict: it.summary === 'finding 1' ? 'unverified' : 'confirmed',
+              reason: it.summary === 'finding 1' ? 'refuted' : undefined,
+            })),
+          ) +
+          '\n```',
+      )
+    }
+    const verdicts = await verifyFindingsBatch([mkFinding(0), mkFinding(1)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    expect(calls).toBe(1)
+    expect(verdicts[0].verdict).toBe('confirmed')
+    expect(verdicts[1]).toEqual({ verdict: 'unverified', reason: 'refuted' })
   })
 
-  it('fails open to confirmed when the agent errors', async () => {
-    const events: RunEvent[] = []
-    const v = await verifyFinding(finding, ctx, (e) => events.push(e), fakeAgent('boom', false))
-    expect(v.verdict).toBe('confirmed')
-    expect(v.reason).toMatch(/verifier failed/)
-    expect(events.some((e) => e.kind === 'error')).toBe(true)
+  it('fails open per finding when the verifier omits an index', async () => {
+    const agent: AgentQuery = async function* () {
+      yield ok('```json\n[{"index":0,"verdict":"confirmed"}]\n```')
+    }
+    const verdicts = await verifyFindingsBatch([mkFinding(0), mkFinding(1)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    expect(verdicts[1]).toEqual({ verdict: 'confirmed', reason: 'verifier gave no verdict' })
   })
 
-  it('fails open to confirmed when both the initial attempt and the reformat retry are unparseable', async () => {
-    const { agent, state } = fakeAgentSequence('no json here', 'still no json')
-    const v = await verifyFinding(finding, ctx, () => {}, agent)
-    expect(v.verdict).toBe('confirmed')
-    expect(v.reason).toMatch(/verifier failed/)
-    expect(state.calls).toBe(2)
+  it('retries once on unparseable output, then fails the whole chunk open', async () => {
+    let calls = 0
+    const agent: AgentQuery = async function* () {
+      calls++
+      yield ok('still not json')
+    }
+    const verdicts = await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    expect(calls).toBe(2)
+    expect(verdicts[0].verdict).toBe('confirmed')
+    expect(verdicts[0].reason).toMatch(/verifier failed/)
   })
 
-  it('reformat retry recovers a valid verdict after an unparseable first attempt', async () => {
-    const { agent, state } = fakeAgentSequence(
-      'this is just prose, not json',
-      '```json\n{"verdict":"unverified","reason":"line moved"}\n```',
-    )
-    const v = await verifyFinding(finding, ctx, () => {}, agent)
-    expect(v.verdict).toBe('unverified')
-    expect(v.reason).toBe('line moved')
-    expect(state.calls).toBe(2)
+  it('fails open when the agent session itself errors', async () => {
+    const agent: AgentQuery = async function* () {
+      yield { type: 'result' as const, ok: false, text: 'boom' }
+    }
+    const verdicts = await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    expect(verdicts[0].verdict).toBe('confirmed')
+    expect(verdicts[0].reason).toMatch(/verifier failed: boom/)
   })
 
-  it('tags emitted events with skill "verify"', async () => {
-    const events: RunEvent[] = []
-    await verifyFinding(finding, ctx, (e) => events.push(e), fakeAgent('```json\n{"verdict":"confirmed"}\n```'))
-    expect(events.every((e) => e.skill === 'verify')).toBe(true)
+  it('chunks more than 20 findings into sequential sessions with global indexes', async () => {
+    const prompts: string[] = []
+    const agent: AgentQuery = async function* (prompt) {
+      prompts.push(prompt)
+      const items = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(prompt)![1]) as { index: number }[]
+      yield ok('```json\n' + JSON.stringify(items.map((it) => ({ index: it.index, verdict: 'confirmed' }))) + '\n```')
+    }
+    const findings = Array.from({ length: 25 }, (_, i) => mkFinding(i))
+    const verdicts = await verifyFindingsBatch(findings, { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    expect(prompts).toHaveLength(2)
+    expect(prompts[1]).toContain('"index": 20')
+    expect(verdicts).toHaveLength(25)
+    expect(verdicts.every((v) => v.verdict === 'confirmed')).toBe(true)
   })
 })
