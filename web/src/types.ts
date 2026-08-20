@@ -15,6 +15,9 @@ export interface Finding {
   summary: string
   detail: string
   suggestion: string
+  /** Short fenced before/after code snippet. Empty/absent on legacy runs and when the
+   * model omitted it — renderers must degrade gracefully. */
+  example?: string
   skills: string[]
   verdict: 'confirmed' | 'unverified'
   verifierReason?: string
@@ -47,6 +50,8 @@ export interface RunRecord {
   skills: string[]
   focus?: string
   verify: boolean
+  /** Review depth used for this run. Absent on runs stored before depth modes existed. */
+  depth?: 'thorough' | 'balanced' | 'economy'
   status: RunStatus
   createdAt: string
   finishedAt?: string
@@ -72,6 +77,8 @@ export interface Config {
   cloneProtocol: 'ssh' | 'https'
   skillDirs: string[]
   model: string
+  verifyModel: string
+  defaultDepth: 'thorough' | 'balanced' | 'economy'
   cacheDir: string
   runsDir: string
   diffWarnLines: number

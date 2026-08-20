@@ -42,6 +42,11 @@ export function FindingCard({
           {finding.verdict === 'unverified' && finding.verifierReason && (
             <p className="text-muted-foreground text-xs italic">{finding.verifierReason}</p>
           )}
+          {finding.example && (
+            <pre className="bg-code-surface text-code-foreground overflow-x-auto rounded-md p-3 text-xs">
+              {finding.example}
+            </pre>
+          )}
           {finding.suggestion && (
             <pre className="bg-code-surface text-code-foreground overflow-x-auto rounded-md p-3 text-xs">
               {finding.suggestion}

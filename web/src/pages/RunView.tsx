@@ -31,10 +31,20 @@ const SEVERITY_VARIANT: Record<Severity, 'destructive' | 'warning' | 'accent' | 
   info: 'muted',
 }
 
-/** Mirrors the exact comment body the server posts (see the comments route in app.ts), so
- * the confirm dialog shows the user precisely what will land on the pull request. */
+const SEVERITY_EMOJI: Record<Severity, string> = { high: '🔴', medium: '🟠', low: '🟡', info: 'ℹ️' }
+const SEVERITY_LABEL: Record<Severity, string> = { high: 'High', medium: 'Medium', low: 'Low', info: 'Info' }
+
+/** Mirrors the exact comment body the server posts (formatComment in
+ * server/src/review/comment.ts), so the confirm dialog shows the user precisely what will
+ * land on the pull request. Keep the two in sync. */
 export function formatCommentBody(f: Finding): string {
-  return `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
+  const parts = [
+    `**${SEVERITY_EMOJI[f.severity]} ${SEVERITY_LABEL[f.severity]} · ${f.category}** — ${f.summary}`,
+    `**Why:** ${f.detail}`,
+  ]
+  if (f.example) parts.push(f.example)
+  if (f.suggestion) parts.push(`**Fix:** ${f.suggestion}`)
+  return parts.join('\n\n')
 }
 
 /**
@@ -222,6 +232,7 @@ export function RunView() {
       skills: run.skills,
       focus: run.focus,
       verify: run.verify,
+      depth: run.depth,
       force: true,
     })
     if (res.id) navigate(`/runs/${res.id}`)
@@ -240,6 +251,7 @@ export function RunView() {
       skills: failed,
       focus: run.focus,
       verify: run.verify,
+      depth: run.depth,
       force: true,
     })
     if (res.id) navigate(`/runs/${res.id}`)
@@ -278,6 +290,11 @@ export function RunView() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-family-display text-2xl">{run.prTitle}</h1>
           <StatusBadge status={run.status} />
+          {run.depth && (
+            <Badge variant="muted" size="xs" className="capitalize">
+              {run.depth}
+            </Badge>
+          )}
         </div>
         <p className="text-muted-foreground font-family-mono text-sm">
           {run.pr.workspace}/{run.pr.repo}#{run.pr.id}

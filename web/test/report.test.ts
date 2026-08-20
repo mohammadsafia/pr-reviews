@@ -31,24 +31,38 @@ describe('groupFindingsBySeverity', () => {
   })
 })
 
-describe('formatCommentBody', () => {
-  it('renders the exact body the server posts, so the confirm dialog matches reality', () => {
-    const finding: Finding = {
-      file: 'a.ts',
-      line: 12,
-      severity: 'high',
-      category: 'security',
-      summary: 'SQL injection',
-      detail: 'User input is concatenated into the query string.',
-      suggestion: 'Use parameterized queries.',
-      skills: ['review-code'],
-      verdict: 'confirmed',
-    }
-    expect(formatCommentBody(finding)).toBe(
-      '**[AI review — high/security · review-code]** SQL injection\n\n' +
-        'User input is concatenated into the query string.\n\n' +
-        '**Suggestion:** Use parameterized queries.',
+describe('formatCommentBody (compact template, mirrors server formatComment)', () => {
+  const base: Finding = {
+    file: 'a.ts',
+    line: 3,
+    severity: 'high',
+    category: 'bug',
+    summary: 'socket leaks on unmount',
+    detail: 'Each remount opens a new connection.',
+    suggestion: 'Return a cleanup from the effect.',
+    example: '```tsx\n// before\n// after\n```',
+    skills: ['react-hooks'],
+    verdict: 'confirmed',
+  }
+
+  it('renders header, why, example, and fix', () => {
+    expect(formatCommentBody(base)).toBe(
+      '**🔴 High · bug** — socket leaks on unmount\n\n' +
+        '**Why:** Each remount opens a new connection.\n\n' +
+        base.example +
+        '\n\n**Fix:** Return a cleanup from the effect.',
     )
+  })
+
+  it('omits example when empty/absent and fix when suggestion empty', () => {
+    expect(formatCommentBody({ ...base, example: undefined })).not.toContain('```tsx')
+    expect(formatCommentBody({ ...base, suggestion: '' })).not.toContain('**Fix:**')
+  })
+
+  it('maps each severity to its emoji', () => {
+    expect(formatCommentBody({ ...base, severity: 'medium' })).toContain('🟠 Medium')
+    expect(formatCommentBody({ ...base, severity: 'low' })).toContain('🟡 Low')
+    expect(formatCommentBody({ ...base, severity: 'info' })).toContain('ℹ️ Info')
   })
 })
 
