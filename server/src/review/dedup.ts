@@ -19,6 +19,7 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
     for (const sk of f.skills) if (!cur.skills.includes(sk)) cur.skills.push(sk)
     cur.detail = longer(cur.detail, f.detail)
     cur.suggestion = longer(cur.suggestion, f.suggestion)
+    cur.example = longer(cur.example ?? '', f.example ?? '')
   }
   return [...groups.values()]
 }

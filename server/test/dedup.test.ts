@@ -31,6 +31,15 @@ describe('dedupeFindings', () => {
     expect(out).toHaveLength(2)
   })
 
+  it('keeps the longer example when merging duplicate findings', () => {
+    const out = dedupeFindings([
+      f({ skills: ['s1'], example: 'short' }),
+      f({ skills: ['s2'], example: 'much longer example text' }),
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0].example).toBe('much longer example text')
+  })
+
   it('preserves first-seen group order and dedupes repeated skills', () => {
     const out = dedupeFindings([
       f({ file: 'z.ts', skills: ['s1'] }),

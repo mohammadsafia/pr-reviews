@@ -16,18 +16,22 @@ export const FindingSchema = z.object({
   summary: z.string().min(1),
   detail: z.string(),
   suggestion: z.string(),
+  example: z.string().default(''),
   skill: z.string(),
 })
 
 function candidateJson(text: string): string | undefined {
-  const fenced = [...text.matchAll(/```json\s*\n([\s\S]*?)```/g)]
+  // The closing fence must sit at the start of a line: findings may embed ``` sequences
+  // inside JSON string values (the `example` field), and those are never preceded by a raw
+  // newline — JSON escapes newlines inside strings — so this anchor skips right past them.
+  const fenced = [...text.matchAll(/```json\s*\n([\s\S]*?)\n```/g)]
   if (fenced.length > 0) return fenced[fenced.length - 1][1]
   const trimmed = text.trim()
   if (trimmed.startsWith('[')) return trimmed
   return undefined
 }
 
-export function extractFindings(text: string): Finding[] {
+export function extractFindings(text: string, validSkills: string[]): Finding[] {
   const raw = candidateJson(text)
   if (raw === undefined) throw new FindingsParseError()
   let arr: unknown
@@ -41,7 +45,10 @@ export function extractFindings(text: string): Finding[] {
     const parsed = FindingSchema.safeParse(item)
     if (!parsed.success) return []
     const { skill, ...rest } = parsed.data
-    return [{ ...rest, skills: [skill], verdict: 'confirmed' as const }]
+    // Never discard a real finding over a labeling error: unknown labels fall back to the
+    // session's first skill.
+    const attributed = validSkills.includes(skill) ? skill : validSkills[0]
+    return [{ ...rest, skills: [attributed], verdict: 'confirmed' as const }]
   })
 }
 

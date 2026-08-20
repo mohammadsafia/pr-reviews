@@ -36,6 +36,9 @@ export interface Finding {
   summary: string
   detail: string
   suggestion: string
+  /** Short fenced before/after code snippet. Empty/absent on legacy runs and when the
+   * model omitted it — renderers must degrade gracefully. */
+  example?: string
   skills: string[]
   verdict: 'confirmed' | 'unverified'
   verifierReason?: string
