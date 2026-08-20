@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { StatusBadge } from '@/components/StatusBadge'
 import { cn } from '@/lib/utils'
 
-import { createRun, getSkills, listRuns } from '../api.js'
+import { createRun, getConfig, getSkills, listRuns } from '../api.js'
 import { filterSkills, inferCategory } from '../lib/skills.js'
 import type { RunRecord, SkillInfo } from '../types.js'
 
@@ -27,6 +27,14 @@ export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[
 
 const LAST_SKILLS_KEY = 'pr-reviewer.lastSkills'
 const VERIFY_KEY = 'pr-reviewer.verify'
+const DEPTH_KEY = 'pr-reviewer.depth'
+
+type Depth = 'thorough' | 'balanced' | 'economy'
+const DEPTH_OPTIONS: { value: Depth; label: string; hint: string }[] = [
+  { value: 'thorough', label: 'Thorough', hint: 'One agent per skill — highest quality, highest cost.' },
+  { value: 'balanced', label: 'Balanced', hint: 'Groups of 3 skills per agent — solid quality at roughly a third of the cost.' },
+  { value: 'economy', label: 'Economy', hint: 'All skills in a single agent — cheapest, lighter per-skill attention.' },
+]
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
@@ -54,6 +62,9 @@ export function NewReview() {
   const [verify, setVerify] = useState<boolean>(
     () => JSON.parse(localStorage.getItem(VERIFY_KEY) ?? 'true'),
   )
+  const [depth, setDepth] = useState<Depth | null>(
+    () => localStorage.getItem(DEPTH_KEY) as Depth | null,
+  )
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [error, setError] = useState('')
   const [oversized, setOversized] = useState<number | null>(null)
@@ -65,6 +76,19 @@ export function NewReview() {
     getSkills().then(setSkills).catch((e) => setError(e.message))
     listRuns().then(setRuns).catch(() => {})
   }, [])
+
+  // First-ever visit (no stored choice): preselect the configured default depth.
+  useEffect(() => {
+    if (depth !== null) return
+    getConfig()
+      .then((c) => setDepth((cur) => cur ?? c.defaultDepth))
+      .catch(() => setDepth((cur) => cur ?? 'balanced'))
+  }, [depth])
+
+  function pickDepth(d: Depth) {
+    setDepth(d)
+    localStorage.setItem(DEPTH_KEY, d)
+  }
 
   function toggle(name: string) {
     const next = new Set(selected)
@@ -105,7 +129,14 @@ export function NewReview() {
     setError('')
     setOversized(null)
     try {
-      const res = await createRun({ url, skills: [...selected], focus: focus || undefined, verify, force })
+      const res = await createRun({
+        url,
+        skills: [...selected],
+        focus: focus || undefined,
+        verify,
+        force,
+        depth: depth ?? undefined,
+      })
       if (res.id) navigate(`/runs/${res.id}`)
       else if (res.status === 409) setOversized(res.diffLines ?? 0)
       else setError(res.error ?? 'Failed to start run')
@@ -296,6 +327,30 @@ export function NewReview() {
         />
         <span className="text-sm">Verify findings (double-check each with a second agent)</span>
       </label>
+
+      <div className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">Review depth</h2>
+        <div className="flex flex-wrap gap-2">
+          {DEPTH_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => pickDepth(o.value)}
+              className={cn(
+                'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                depth === o.value
+                  ? 'border-primary bg-primary text-primary-foreground'
+                  : 'border-muted-200 text-muted-foreground hover:border-primary hover:text-primary',
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-muted-foreground text-xs">
+          {DEPTH_OPTIONS.find((o) => o.value === depth)?.hint ?? 'Loading default…'}
+        </p>
+      </div>
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Recent runs</h2>
