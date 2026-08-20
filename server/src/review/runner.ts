@@ -85,23 +85,34 @@ const REFORMAT_PROMPT =
 export async function runReview(
   input: {
     meta: PrMeta
-    diff: string
     skills: { name: string; content: string }[]
     focus?: string
     cwd: string
     model: string
+    reformatModel: string
   },
   onEvent: (e: RunEvent) => void,
   agentQuery: AgentQuery = sdkQuery,
 ): Promise<Finding[]> {
-  const opts = { cwd: input.cwd, model: input.model }
-  const text = await runOnce(buildReviewPrompt(input), opts, onEvent, agentQuery)
+  const validSkills = input.skills.length > 0 ? input.skills.map((s) => s.name) : ['general']
+  const text = await runOnce(
+    buildReviewPrompt(input),
+    { cwd: input.cwd, model: input.model },
+    onEvent,
+    agentQuery,
+  )
   try {
-    return extractFindings(text)
+    return extractFindings(text, validSkills)
   } catch (err) {
     if (!(err instanceof FindingsParseError)) throw err
     onEvent({ kind: 'status', text: 'Output malformed — asking agent to reformat', at: new Date().toISOString() })
-    const retryText = await runOnce(REFORMAT_PROMPT + text, opts, onEvent, agentQuery)
-    return extractFindings(retryText)
+    // Pure formatting fix — no reasoning needed, so the cheap model handles the retry.
+    const retryText = await runOnce(
+      REFORMAT_PROMPT + text,
+      { cwd: input.cwd, model: input.reformatModel },
+      onEvent,
+      agentQuery,
+    )
+    return extractFindings(retryText, validSkills)
   }
 }

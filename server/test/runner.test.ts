@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { runReview, buildQueryOptions } from '../src/review/runner.js'
+import { runReview, buildQueryOptions, type AgentQuery } from '../src/review/runner.js'
 import type { RunEvent } from '../src/types.js'
 
 const meta = {
@@ -20,7 +20,7 @@ const finding = {
   skill: 'review-code',
 }
 const goodJson = '```json\n' + JSON.stringify([finding]) + '\n```'
-const input = { meta, diff: 'd', skills: [], cwd: '/tmp', model: 'm' }
+const input = { meta, skills: [], cwd: '/tmp', model: 'm', reformatModel: 'cheap-model' }
 
 function fakeAgent(...resultTexts: string[]) {
   let call = 0
@@ -56,6 +56,49 @@ describe('runReview', () => {
       yield { type: 'result' as const, ok: false, text: 'agent crashed' }
     }
     await expect(runReview(input, () => {}, agent)).rejects.toThrow(/agent crashed/)
+  })
+
+  it('derives validSkills from the skill group and reattributes unknown labels', async () => {
+    const mislabeled = { ...finding, skill: 'nonsense' }
+    const agent: AgentQuery = async function* () {
+      yield { type: 'result', ok: true, text: '```json\n' + JSON.stringify([mislabeled]) + '\n```' }
+    }
+    const out = await runReview(
+      {
+        meta,
+        skills: [
+          { name: 'sec', content: 'c' },
+          { name: 'perf', content: 'c' },
+        ],
+        cwd: '/tmp',
+        model: 'm',
+        reformatModel: 'cheap',
+      },
+      () => {},
+      agent,
+    )
+    expect(out[0].skills).toEqual(['sec'])
+  })
+
+  it('runs the reformat retry on reformatModel, not the main model', async () => {
+    const models: string[] = []
+    let call = 0
+    const agent: AgentQuery = async function* (_prompt, opts) {
+      models.push(opts.model)
+      call++
+      if (call === 1) {
+        yield { type: 'result', ok: true, text: 'no json here' }
+      } else {
+        yield { type: 'result', ok: true, text: goodJson }
+      }
+    }
+    const out = await runReview(
+      { meta, skills: [], cwd: '/tmp', model: 'main-model', reformatModel: 'cheap-model' },
+      () => {},
+      agent,
+    )
+    expect(out).toHaveLength(1)
+    expect(models).toEqual(['main-model', 'cheap-model'])
   })
 })
 
