@@ -27,7 +27,7 @@ A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claud
 
 4. **Configure Settings first**: enter your Bitbucket email and API token (Claude authentication comes from your Claude Code login or ANTHROPIC_API_KEY environment variable).
 
-5. Paste a Bitbucket Cloud PR URL on the Home page, select review skills, and Run Review
+5. Paste one or more PR URLs (one per line) on the Home page, select review skills, and Run Review
 
 ## Review Quality
 
@@ -36,6 +36,10 @@ Each review run deduplicates findings across selected skills — when multiple s
 ### Review Depth & Cost
 
 The New Review screen offers three review depths controlling how selected skills are grouped into agent sessions: **Thorough** (one skill per session — highest quality, highest cost), **Balanced** (groups of 3 skills per session — the default, configurable via `defaultDepth`), and **Economy** (all skills in one session — cheapest). Additionally, the PR diff is no longer embedded in agent prompts: it is written to `.pr-review/diff.patch` inside the repo checkout (alongside a `.pr-review/pr.md` manifest of changed files), and agents read only the sections relevant to their skills — a large PR no longer pays for its full diff in every session.
+
+### Concurrent Runs
+
+Runs execute concurrently up to `maxConcurrentRuns` (config, default 2); excess runs queue and start as slots free. Each run checks out into its own disposable git worktree under `~/.pr-reviewer/repos/.worktrees/`, so several PRs of the same repository can be reviewed at once without interfering — the shared base clone only serializes the brief git clone/fetch phase. Worktrees are removed when their run finishes and swept at startup after a crash. The New Review screen accepts multiple PR URLs (one per line) and starts one run per URL with the same skills, depth, and verification settings.
 
 ### Idempotent and Resolution-Aware Comment Posting
 
@@ -54,7 +58,7 @@ Additionally, any run with one or more failed skills offers a "Retry failed skil
 ## Data Locations
 
 - **Config:** `~/.pr-reviewer/config.json` (0600 permissions—credentials)
-- **Repository Cache:** `~/.pr-reviewer/repos/` (cloned PRs for analysis)
+- **Repository Cache:** `~/.pr-reviewer/repos/` (cloned repos for analysis; per-run worktrees under `.worktrees/`)
 - **Run History:** `~/.pr-reviewer/runs/` (review results and findings)
 
 ## Development
