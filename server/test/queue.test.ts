@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { makeSerialQueue } from '../src/queue.js'
+import { makeTaskPool } from '../src/queue.js'
 
 function deferred<T = void>() {
   let resolve!: (v: T) => void
@@ -11,68 +11,104 @@ function deferred<T = void>() {
   return { promise, resolve, reject }
 }
 
-describe('makeSerialQueue', () => {
-  it('calls onError with the thrown error and does not reject unhandled', async () => {
-    const onError = vi.fn()
-    const queue = makeSerialQueue(onError)
-    const err = new Error('boom')
-    const d = deferred<void>()
-    queue.push(async () => {
-      d.resolve()
-      throw err
-    })
-    await d.promise
-    // allow the rejection/catch microtasks to flush
-    await new Promise((r) => setTimeout(r, 0))
-    expect(onError).toHaveBeenCalledWith(err)
-  })
+const tick = () => new Promise((r) => setTimeout(r, 0))
 
-  it('still executes a task pushed after a rejecting task', async () => {
-    const onError = vi.fn()
-    const queue = makeSerialQueue(onError)
-    queue.push(async () => {
-      throw new Error('poison')
-    })
-    const d = deferred<void>()
-    queue.push(async () => {
-      d.resolve()
-    })
-    await d.promise
-    await new Promise((r) => setTimeout(r, 0))
-    expect(onError).toHaveBeenCalledTimes(1)
-  })
-
-  it('executes tasks strictly in push order, each starting only after the previous settles', async () => {
-    const onError = vi.fn()
-    const queue = makeSerialQueue(onError)
+describe('makeTaskPool', () => {
+  it('runs at most getLimit() tasks at once and starts waiters as slots free', async () => {
+    const pool = makeTaskPool(() => 2, () => {})
     const order: string[] = []
+    const gates = [deferred(), deferred(), deferred()]
+    for (const [i, gate] of gates.entries()) {
+      pool.push(async () => {
+        order.push(`start-${i}`)
+        await gate.promise
+        order.push(`end-${i}`)
+      })
+    }
+    await tick()
+    expect(order).toEqual(['start-0', 'start-1']) // task 2 held back by the cap
+    gates[0].resolve()
+    await tick()
+    expect(order).toEqual(['start-0', 'start-1', 'end-0', 'start-2'])
+    gates[1].resolve()
+    gates[2].resolve()
+    await tick()
+    expect(order).toContain('end-2')
+  })
 
-    const first = deferred<void>()
-    const second = deferred<void>()
-
-    queue.push(async () => {
+  it('with limit 1 preserves strict push order (the old serial guarantee)', async () => {
+    const pool = makeTaskPool(() => 1, () => {})
+    const order: string[] = []
+    const first = deferred()
+    pool.push(async () => {
       order.push('start-1')
       await first.promise
       order.push('end-1')
     })
-    queue.push(async () => {
+    pool.push(async () => {
       order.push('start-2')
-      await second.promise
-      order.push('end-2')
     })
-
-    // give the queue a chance to start task 1, but task 2 must not have started yet
-    await new Promise((r) => setTimeout(r, 0))
+    await tick()
     expect(order).toEqual(['start-1'])
-
     first.resolve()
-    await new Promise((r) => setTimeout(r, 0))
+    await tick()
     expect(order).toEqual(['start-1', 'end-1', 'start-2'])
+  })
 
-    second.resolve()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(order).toEqual(['start-1', 'end-1', 'start-2', 'end-2'])
+  it('reads getLimit at each dequeue — raising it mid-stream starts more waiters', async () => {
+    let limit = 1
+    const pool = makeTaskPool(() => limit, () => {})
+    const running: string[] = []
+    const gate = deferred()
+    pool.push(async () => {
+      running.push('a')
+      await gate.promise
+    })
+    pool.push(async () => {
+      running.push('b')
+      await gate.promise
+    })
+    pool.push(async () => {
+      running.push('c')
+      await gate.promise
+    })
+    await tick()
+    expect(running).toEqual(['a'])
+    limit = 3
+    // a raised limit takes effect at the next dequeue — trigger one by pushing
+    pool.push(async () => {
+      running.push('d')
+      await gate.promise
+    })
+    await tick()
+    expect(running).toEqual(['a', 'b', 'c']) // cap now 3: b and c start, d waits for a slot
+    gate.resolve()
+    await tick()
+    expect(running).toContain('d') // a slot freed → d ran
+  })
 
-    expect(onError).not.toHaveBeenCalled()
+  it('routes task errors to onError and keeps the pool draining', async () => {
+    const onError = vi.fn()
+    const pool = makeTaskPool(() => 1, onError)
+    const err = new Error('boom')
+    pool.push(async () => {
+      throw err
+    })
+    const d = deferred()
+    pool.push(async () => {
+      d.resolve()
+    })
+    await d.promise
+    await tick()
+    expect(onError).toHaveBeenCalledWith(err)
+  })
+
+  it('guards a getLimit of 0 or less by running at least one task', async () => {
+    const pool = makeTaskPool(() => 0, () => {})
+    const d = deferred()
+    pool.push(async () => {
+      d.resolve()
+    })
+    await d.promise // resolves only if the task ran despite limit 0
   })
 })

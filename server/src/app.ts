@@ -15,7 +15,7 @@ import { countDiffLines } from './review/findings.js'
 import { groupSkills } from './review/grouping.js'
 import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
 import { verifyFindingsBatch } from './review/verify.js'
-import { makeSerialQueue } from './queue.js'
+import { makeTaskPool } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
 import { RunStore } from './store/runs.js'
@@ -100,7 +100,7 @@ export function buildApp(
   const clientFactory = deps.clientFactory ?? makeClient
   const app = Fastify()
   const events = new EventEmitter()
-  const runQueue = makeSerialQueue((err) => app.log.error(err))
+  const runQueue = makeTaskPool(() => cfg().maxConcurrentRuns, (err) => app.log.error(err))
 
   const cfg = (): Config => loadConfig(configPath)
   const store = (): RunStore => new RunStore(cfg().runsDir)
