@@ -79,6 +79,7 @@ export interface Config {
   model: string
   verifyModel: string
   defaultDepth: 'thorough' | 'balanced' | 'economy'
+  maxConcurrentRuns: number
   cacheDir: string
   runsDir: string
   diffWarnLines: number

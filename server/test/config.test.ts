@@ -85,4 +85,22 @@ describe('config', () => {
       expect(cfg.defaultDepth).toBe('balanced') // invalid enum value → that field's default
     })
   })
+
+  describe('maxConcurrentRuns', () => {
+    it('defaults to 2 when absent', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(path, JSON.stringify({}))
+      expect(loadConfig(path).maxConcurrentRuns).toBe(2)
+    })
+
+    it('preserves a stored value and falls back per-field on invalid values', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(path, JSON.stringify({ maxConcurrentRuns: 5 }))
+      expect(loadConfig(path).maxConcurrentRuns).toBe(5)
+      writeFileSync(path, JSON.stringify({ maxConcurrentRuns: 0 }))
+      expect(loadConfig(path).maxConcurrentRuns).toBe(2) // min(1) violated → field default
+    })
+  })
 })
