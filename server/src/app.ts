@@ -6,7 +6,7 @@ import { ConfigSchema, DEFAULT_CONFIG_PATH, loadConfig, saveConfig, type Config 
 import { PrAuthError } from './providers/errors.js'
 import { makeClient } from './providers/factory.js'
 import { parsePrUrl } from './providers/parsePrUrl.js'
-import { RepoCache } from './repos/cache.js'
+import { RepoCache, sweepStrandedWorktrees } from './repos/cache.js'
 import { formatComment } from './review/comment.js'
 import { writeContextPack } from './review/contextPack.js'
 import { dedupeFindings } from './review/dedup.js'
@@ -107,6 +107,7 @@ export function buildApp(
   const skillReposDir = (): string => join(dirname(cfg().cacheDir), 'skill-repos')
 
   sweepStrandedRuns(cfg().runsDir)
+  sweepStrandedWorktrees(cfg().cacheDir)
 
   app.get('/api/config', async () => {
     const c = cfg()
@@ -257,6 +258,7 @@ export function buildApp(
   ): Promise<void> {
     let s: RunStore | undefined
     let run: RunRecord | undefined
+    let cache: RepoCache | undefined
     try {
       const c = cfg()
       s = store()
@@ -271,11 +273,12 @@ export function buildApp(
       s.save(run)
       emit({ kind: 'status', text: 'Preparing repository checkout…', at: new Date().toISOString() })
       const client = clientFactory(ctx.pr, c)
-      const cache = new RepoCache(c.cacheDir)
-      const cwd = await cache.ensureCheckout(ctx.pr, {
+      cache = new RepoCache(c.cacheDir)
+      const cwd = await cache.ensureWorktree(ctx.pr, {
         cloneUrl: client.cloneUrl(ctx.pr, c.cloneProtocol),
         sourceBranch: ctx.meta.sourceBranch,
         commit: ctx.meta.sourceCommit,
+        runId,
       })
       emit({ kind: 'status', text: 'Writing review context…', at: new Date().toISOString() })
       // Throws → the outer catch fails the run: never review without a fresh context pack.
@@ -379,6 +382,19 @@ export function buildApp(
         events.emit(runId, errorEvent)
       }
     } finally {
+      if (cache) {
+        try {
+          await cache.removeWorktree(ctx.pr, runId)
+        } catch (err: any) {
+          // Cleanup must never change the run's outcome; the startup sweep is the backstop.
+          if (run)
+            run.transcript.push({
+              kind: 'status',
+              text: `Worktree cleanup failed: ${err.message}`,
+              at: new Date().toISOString(),
+            })
+        }
+      }
       if (s && run) {
         run.finishedAt = new Date().toISOString()
         s.save(run)

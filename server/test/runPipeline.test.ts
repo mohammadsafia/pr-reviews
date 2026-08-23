@@ -20,6 +20,16 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
 
+function deferred<T = void>() {
+  let resolve!: (v: T) => void
+  let reject!: (err: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 beforeAll(() => {
   origin = mkdtempSync(join(tmpdir(), 'prr-pipeline-origin-'))
   git(origin, 'init', '-q', '-b', 'main')
@@ -596,5 +606,81 @@ describe('run pipeline integration', () => {
     expect(run.error).toMatch(/all 2 skill reviews failed/i)
     expect(run.skillResults).toHaveLength(2)
     expect(run.skillResults.every((r: any) => r.status === 'failed')).toBe(true)
+  })
+
+  it('runs two PRs of the same repo concurrently in isolated worktrees (agent phases overlap)', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n'
+    const finding = {
+      file: 'a.txt', line: 1, severity: 'low', category: 'style',
+      summary: 's', detail: 'd', suggestion: 'x', skill: 'general',
+    }
+    let reviewStarts = 0
+    const bothStarted = deferred()
+    // Each review session blocks until BOTH runs' sessions have started — the test can only
+    // pass if the two runs' agent phases truly overlap.
+    const agent: AgentQuery = async function* () {
+      reviewStarts++
+      if (reviewStarts >= 2) bothStarted.resolve()
+      await bothStarted.promise
+      yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], verify: false },
+    })
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/2', skills: [], verify: false },
+    })
+    const run1 = await pollRun(app, res1.json().id)
+    const run2 = await pollRun(app, res2.json().id)
+    expect(run1.status).toBe('completed')
+    expect(run2.status).toBe('completed')
+    expect(run1.findings).toHaveLength(1)
+    expect(run2.findings).toHaveLength(1)
+  })
+
+  it('holds the second run queued when maxConcurrentRuns is 1', async () => {
+    const path = tempConfig()
+    const cfgObj = loadConfig(path)
+    cfgObj.maxConcurrentRuns = 1
+    saveConfig(cfgObj, path)
+    const gate = deferred()
+    const agent: AgentQuery = async function* () {
+      await gate.promise
+      yield { type: 'result' as const, ok: true, text: '```json\n[]\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      agentQuery: agent,
+    })
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], verify: false },
+    })
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/2', skills: [], verify: false },
+    })
+    // give run 1 time to start; run 2 must still be queued behind the cap
+    await new Promise((r) => setTimeout(r, 150))
+    const r1 = (await app.inject({ method: 'GET', url: `/api/runs/${res1.json().id}` })).json()
+    const r2 = (await app.inject({ method: 'GET', url: `/api/runs/${res2.json().id}` })).json()
+    expect(r1.status).toBe('running')
+    expect(r2.status).toBe('queued')
+    gate.resolve()
+    expect((await pollRun(app, res1.json().id)).status).toBe('completed')
+    expect((await pollRun(app, res2.json().id)).status).toBe('completed')
   })
 })
