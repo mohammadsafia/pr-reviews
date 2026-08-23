@@ -88,4 +88,13 @@ describe('writeContextPack', () => {
     const exclude = readFileSync(join(cwd, '.git', 'info', 'exclude'), 'utf8')
     expect(exclude.split('\n').filter((l) => l === '.pr-review/')).toHaveLength(1)
   })
+
+  it('skips the exclude write when .git is a file (worktree checkout) without crashing', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'prr-pack-wt-'))
+    const gitPointer = 'gitdir: /elsewhere/.git/worktrees/x\n'
+    writeFileSync(join(cwd, '.git'), gitPointer)
+    writeContextPack(cwd, meta, diff)
+    expect(readFileSync(join(cwd, '.pr-review', 'diff.patch'), 'utf8')).toBe(diff)
+    expect(readFileSync(join(cwd, '.git'), 'utf8')).toBe(gitPointer) // pointer untouched
+  })
 })

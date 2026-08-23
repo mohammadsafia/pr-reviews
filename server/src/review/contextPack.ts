@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { PrMeta } from '../types.js'
 
@@ -42,6 +42,21 @@ export function buildPrManifest(meta: PrMeta, diff: string): string {
   ].join('\n')
 }
 
+/** Adds .pr-review/ to the repo's .git/info/exclude (never a tracked file). No-op when
+ * .git is absent or is a worktree's pointer FILE — worktrees share the base clone's
+ * exclude via the common git dir, so the base entry covers them. */
+export function ensurePrReviewExcluded(repoRoot: string): void {
+  const gitDir = join(repoRoot, '.git')
+  if (!existsSync(gitDir) || !statSync(gitDir).isDirectory()) return
+  const excludePath = join(gitDir, 'info', 'exclude')
+  mkdirSync(dirname(excludePath), { recursive: true })
+  const existing = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : ''
+  if (!existing.split('\n').includes('.pr-review/')) {
+    const sep = existing === '' || existing.endsWith('\n') ? '' : '\n'
+    writeFileSync(excludePath, `${existing}${sep}.pr-review/\n`)
+  }
+}
+
 /** Writes the per-run context pack into the checkout. Deletes any previous pack first so a
  * run can never see stale data, and hides the directory from git via .git/info/exclude
  * (never the repo's tracked .gitignore). Throws on any fs error — callers treat that as
@@ -52,11 +67,5 @@ export function writeContextPack(cwd: string, meta: PrMeta, diff: string): void 
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'diff.patch'), diff)
   writeFileSync(join(dir, 'pr.md'), buildPrManifest(meta, diff))
-  const excludePath = join(cwd, '.git', 'info', 'exclude')
-  mkdirSync(dirname(excludePath), { recursive: true })
-  const existing = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : ''
-  if (!existing.split('\n').includes('.pr-review/')) {
-    const sep = existing === '' || existing.endsWith('\n') ? '' : '\n'
-    writeFileSync(excludePath, `${existing}${sep}.pr-review/\n`)
-  }
+  ensurePrReviewExcluded(cwd)
 }
