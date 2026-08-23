@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { AlertTriangle, Search } from 'lucide-react'
+import { Search } from 'lucide-react'
 
-import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -13,7 +12,9 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { cn } from '@/lib/utils'
 
 import { createRun, getConfig, getSkills, listRuns } from '../api.js'
+import { submitBatch, type BatchOutcome } from '../lib/batch.js'
 import { filterSkills, inferCategory } from '../lib/skills.js'
+import { parsePrUrlLines } from '../lib/urls.js'
 import type { RunRecord, SkillInfo } from '../types.js'
 
 export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[]> {
@@ -67,7 +68,7 @@ export function NewReview() {
   )
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [error, setError] = useState('')
-  const [oversized, setOversized] = useState<number | null>(null)
+  const [results, setResults] = useState<BatchOutcome[]>([])
   const [busy, setBusy] = useState(false)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
@@ -123,23 +124,28 @@ export function NewReview() {
     [skills, query, category],
   )
   const visibleGroups = useMemo(() => groupSkillsBySource(visibleSkills), [visibleSkills])
+  const urls = useMemo(() => parsePrUrlLines(url), [url])
 
-  async function submit(force = false) {
+  async function submit(forceUrl?: string) {
     setBusy(true)
     setError('')
-    setOversized(null)
+    const targets = forceUrl ? [forceUrl] : urls
     try {
-      const res = await createRun({
-        url,
+      const opts = {
         skills: [...selected],
         focus: focus || undefined,
         verify,
-        force,
         depth: depth ?? undefined,
-      })
-      if (res.id) navigate(`/runs/${res.id}`)
-      else if (res.status === 409) setOversized(res.diffLines ?? 0)
-      else setError(res.error ?? 'Failed to start run')
+        force: forceUrl !== undefined,
+      }
+      const outcomes = await submitBatch(targets, opts, createRun)
+      if (!forceUrl && urls.length === 1 && outcomes[0].kind === 'started') {
+        navigate(`/runs/${outcomes[0].id}`)
+        return
+      }
+      // merge: a forced resubmit replaces that URL's previous row
+      setResults((prev) => [...prev.filter((r) => !targets.includes(r.url)), ...outcomes])
+      listRuns().then(setRuns).catch(() => {})
     } finally {
       setBusy(false)
     }
@@ -156,42 +162,50 @@ export function NewReview() {
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            className="h-12 font-family-mono text-sm sm:flex-1"
-            placeholder="https://bitbucket.org/workspace/repo/pull-requests/123"
+          <Textarea
+            className="min-h-24 font-family-mono text-sm sm:flex-1"
+            placeholder={'https://bitbucket.org/workspace/repo/pull-requests/123\nhttps://bitbucket.org/workspace/repo/pull-requests/124'}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
           <Button
             size="lg"
             className="h-12 shrink-0"
-            disabled={busy || !url}
+            disabled={busy || urls.length === 0}
             onClick={() => submit()}
           >
-            {busy ? 'Starting…' : 'Run review'}
+            {busy ? 'Starting…' : urls.length > 1 ? `Run ${urls.length} reviews` : 'Run review'}
           </Button>
         </div>
         <p className="text-muted-foreground text-xs">
-          Bitbucket or GitHub PR URL · {selected.size} of {skills.length} skills selected
+          One Bitbucket or GitHub PR URL per line · {urls.length} PR{urls.length === 1 ? '' : 's'} ·{' '}
+          {selected.size} of {skills.length} skills selected
         </p>
         {error && <p className="text-destructive text-sm">{error}</p>}
-        {oversized !== null && (
-          <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" />
-            <Alert.Title>Large diff</Alert.Title>
-            <Alert.Description className="flex flex-col gap-2">
-              <span>{oversized} changed lines — this may be slow and costly.</span>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-fit"
-                disabled={busy}
-                onClick={() => submit(true)}
-              >
-                Run anyway
-              </Button>
-            </Alert.Description>
-          </Alert>
+        {results.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {results.map((r) => (
+              <div key={r.url} className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-family-mono min-w-0 truncate text-xs">{r.url}</span>
+                {r.kind === 'started' && (
+                  <Link to={`/runs/${r.id}`} className="text-primary text-xs font-medium">
+                    started — view run
+                  </Link>
+                )}
+                {r.kind === 'oversized' && (
+                  <>
+                    <span className="text-muted-foreground text-xs">
+                      {r.diffLines} changed lines — large diff
+                    </span>
+                    <Button variant="secondary" size="sm" disabled={busy} onClick={() => submit(r.url)}>
+                      Run anyway
+                    </Button>
+                  </>
+                )}
+                {r.kind === 'error' && <span className="text-destructive text-xs">{r.message}</span>}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
