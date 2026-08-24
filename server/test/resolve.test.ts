@@ -6,7 +6,8 @@ describe('queryFor', () => {
     const q = queryFor({ id: 'c', label: 'C', kind: 'claude', model: 'claude-sonnet-5' })
     expect(typeof q).toBe('function')
   })
-  it('throws for kinds not yet wired', () => {
-    expect(() => queryFor({ id: 'k', label: 'K', kind: 'openai', baseUrl: 'https://x', apiKey: 'k', model: 'm' })).toThrow(/not yet supported/)
+  it('returns a function for cli and openai profiles', () => {
+    expect(typeof queryFor({ id: 'c', label: 'C', kind: 'cli', command: 'x', args: [] })).toBe('function')
+    expect(typeof queryFor({ id: 'k', label: 'K', kind: 'openai', baseUrl: 'https://x', apiKey: 'k', model: 'm' })).toBe('function')
   })
 })
