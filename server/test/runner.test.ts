@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { runReview, buildQueryOptions, type AgentQuery } from '../src/review/runner.js'
+import { runReview, type AgentQuery } from '../src/review/runner.js'
+import { buildQueryOptions } from '../src/models/claude.js'
 import type { RunEvent } from '../src/types.js'
 
 const meta = {
@@ -20,9 +21,16 @@ const finding = {
   skill: 'review-code',
 }
 const goodJson = '```json\n' + JSON.stringify([finding]) + '\n```'
-const input = { meta, skills: [], cwd: '/tmp', model: 'm', reformatModel: 'cheap-model' }
 
-function fakeAgent(...resultTexts: string[]) {
+const input = (query: AgentQuery, reformatQuery: AgentQuery = query) => ({
+  meta,
+  skills: [],
+  cwd: '/tmp',
+  query,
+  reformatQuery,
+})
+
+function fakeAgent(...resultTexts: string[]): AgentQuery {
   let call = 0
   return async function* (_prompt: string) {
     yield { type: 'assistant' as const, text: 'thinking' }
@@ -34,28 +42,26 @@ function fakeAgent(...resultTexts: string[]) {
 describe('runReview', () => {
   it('streams events and returns parsed findings', async () => {
     const events: RunEvent[] = []
-    const findings = await runReview(input, (e) => events.push(e), fakeAgent(goodJson))
+    const findings = await runReview(input(fakeAgent(goodJson)), (e) => events.push(e))
     expect(findings).toHaveLength(1)
     expect(events.some((e) => e.kind === 'text' && e.text === 'thinking')).toBe(true)
     expect(events.some((e) => e.kind === 'tool')).toBe(true)
   })
 
   it('retries once on malformed findings, then succeeds', async () => {
-    const findings = await runReview(input, () => {}, fakeAgent('no json at all', goodJson))
+    const findings = await runReview(input(fakeAgent('no json at all', goodJson)), () => {})
     expect(findings).toHaveLength(1)
   })
 
   it('fails after the single retry is also malformed', async () => {
-    await expect(
-      runReview(input, () => {}, fakeAgent('bad', 'still bad')),
-    ).rejects.toThrow(/JSON findings/)
+    await expect(runReview(input(fakeAgent('bad', 'still bad')), () => {})).rejects.toThrow(/JSON findings/)
   })
 
   it('fails when the agent result is not ok', async () => {
-    const agent = async function* () {
+    const agent: AgentQuery = async function* () {
       yield { type: 'result' as const, ok: false, text: 'agent crashed' }
     }
-    await expect(runReview(input, () => {}, agent)).rejects.toThrow(/agent crashed/)
+    await expect(runReview(input(agent), () => {})).rejects.toThrow(/agent crashed/)
   })
 
   it('derives validSkills from the skill group and reattributes unknown labels', async () => {
@@ -71,34 +77,27 @@ describe('runReview', () => {
           { name: 'perf', content: 'c' },
         ],
         cwd: '/tmp',
-        model: 'm',
-        reformatModel: 'cheap',
+        query: agent,
+        reformatQuery: agent,
       },
       () => {},
-      agent,
     )
     expect(out[0].skills).toEqual(['sec'])
   })
 
-  it('runs the reformat retry on reformatModel, not the main model', async () => {
-    const models: string[] = []
-    let call = 0
-    const agent: AgentQuery = async function* (_prompt, opts) {
-      models.push(opts.model)
-      call++
-      if (call === 1) {
-        yield { type: 'result', ok: true, text: 'no json here' }
-      } else {
-        yield { type: 'result', ok: true, text: goodJson }
-      }
+  it('runs the reformat retry on reformatQuery, not the main query', async () => {
+    const calls: string[] = []
+    const main: AgentQuery = async function* () {
+      calls.push('main')
+      yield { type: 'result', ok: true, text: 'no json here' }
     }
-    const out = await runReview(
-      { meta, skills: [], cwd: '/tmp', model: 'main-model', reformatModel: 'cheap-model' },
-      () => {},
-      agent,
-    )
+    const cheap: AgentQuery = async function* () {
+      calls.push('cheap')
+      yield { type: 'result', ok: true, text: goodJson }
+    }
+    const out = await runReview({ meta, skills: [], cwd: '/tmp', query: main, reformatQuery: cheap }, () => {})
     expect(out).toHaveLength(1)
-    expect(models).toEqual(['main-model', 'cheap-model'])
+    expect(calls).toEqual(['main', 'cheap'])
   })
 })
 
@@ -117,8 +116,7 @@ describe('buildQueryOptions', () => {
 
   it('does not rely on allowedTools alone (that option is auto-approve, not a restriction)', () => {
     const opts = buildQueryOptions('/tmp/cwd', 'claude-sonnet-5')
-    // allowedTools must not list any dangerous tool as auto-approved
-    expect(opts.allowedTools ?? []).not.toEqual(
+    expect((opts as any).allowedTools ?? []).not.toEqual(
       expect.arrayContaining(['Bash', 'Write', 'Edit', 'WebFetch', 'WebSearch']),
     )
   })

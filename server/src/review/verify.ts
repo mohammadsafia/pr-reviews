@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { sdkQuery, type AgentQuery } from './runner.js'
+import type { AgentQuery } from './runner.js'
 import type { Finding, PrMeta, RunEvent } from '../types.js'
 
 const CHUNK = 20
@@ -83,12 +83,12 @@ const VERDICT_REFORMAT_PROMPT =
  * produces a result. */
 async function runVerifyTurn(
   prompt: string,
-  opts: { cwd: string; model: string },
+  cwd: string,
   emit: (e: RunEvent) => void,
   agentQuery: AgentQuery,
 ): Promise<string> {
   let resultText: string | undefined
-  for await (const msg of agentQuery(prompt, opts)) {
+  for await (const msg of agentQuery(prompt, { cwd })) {
     const at = new Date().toISOString()
     if (msg.type === 'assistant') {
       if (msg.text) emit({ kind: 'text', text: msg.text, at })
@@ -107,20 +107,19 @@ async function runVerifyTurn(
  * is never dropped or downgraded because the VERIFIER broke. */
 export async function verifyFindingsBatch(
   findings: Finding[],
-  ctx: { meta: PrMeta; cwd: string; model: string },
+  ctx: { meta: PrMeta; cwd: string },
   onEvent: (e: RunEvent) => void,
-  agentQuery: AgentQuery = sdkQuery,
+  agentQuery: AgentQuery,
 ): Promise<Verdict[]> {
   const out: Verdict[] = new Array(findings.length)
   const emit = (e: RunEvent) => onEvent({ ...e, skill: 'verify' })
-  const opts = { cwd: ctx.cwd, model: ctx.model }
   for (let start = 0; start < findings.length; start += CHUNK) {
     const chunk = findings.slice(start, start + CHUNK)
     try {
-      const text = await runVerifyTurn(buildBatchVerifyPrompt(chunk, ctx.meta, start), opts, emit, agentQuery)
+      const text = await runVerifyTurn(buildBatchVerifyPrompt(chunk, ctx.meta, start), ctx.cwd, emit, agentQuery)
       let verdicts = extractBatchVerdicts(text)
       if (!verdicts) {
-        const retryText = await runVerifyTurn(VERDICT_REFORMAT_PROMPT + text, opts, emit, agentQuery)
+        const retryText = await runVerifyTurn(VERDICT_REFORMAT_PROMPT + text, ctx.cwd, emit, agentQuery)
         verdicts = extractBatchVerdicts(retryText)
         if (!verdicts) throw new Error('unparseable verdicts')
       }

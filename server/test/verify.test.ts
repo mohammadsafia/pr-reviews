@@ -71,7 +71,7 @@ describe('verifyFindingsBatch', () => {
           '\n```',
       )
     }
-    const verdicts = await verifyFindingsBatch([mkFinding(0), mkFinding(1)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    const verdicts = await verifyFindingsBatch([mkFinding(0), mkFinding(1)], { meta, cwd: '/tmp' }, () => {}, agent)
     expect(calls).toBe(1)
     expect(verdicts[0].verdict).toBe('confirmed')
     expect(verdicts[1]).toEqual({ verdict: 'unverified', reason: 'refuted' })
@@ -81,7 +81,7 @@ describe('verifyFindingsBatch', () => {
     const agent: AgentQuery = async function* () {
       yield ok('```json\n[{"index":0,"verdict":"confirmed"}]\n```')
     }
-    const verdicts = await verifyFindingsBatch([mkFinding(0), mkFinding(1)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    const verdicts = await verifyFindingsBatch([mkFinding(0), mkFinding(1)], { meta, cwd: '/tmp' }, () => {}, agent)
     expect(verdicts[1]).toEqual({ verdict: 'confirmed', reason: 'verifier gave no verdict' })
   })
 
@@ -91,7 +91,7 @@ describe('verifyFindingsBatch', () => {
       calls++
       yield ok('still not json')
     }
-    const verdicts = await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    const verdicts = await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp' }, () => {}, agent)
     expect(calls).toBe(2)
     expect(verdicts[0].verdict).toBe('confirmed')
     expect(verdicts[0].reason).toMatch(/verifier failed/)
@@ -101,7 +101,7 @@ describe('verifyFindingsBatch', () => {
     const agent: AgentQuery = async function* () {
       yield { type: 'result' as const, ok: false, text: 'boom' }
     }
-    const verdicts = await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    const verdicts = await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp' }, () => {}, agent)
     expect(verdicts[0].verdict).toBe('confirmed')
     expect(verdicts[0].reason).toMatch(/verifier failed: boom/)
   })
@@ -114,7 +114,7 @@ describe('verifyFindingsBatch', () => {
       yield ok('```json\n' + JSON.stringify(items.map((it) => ({ index: it.index, verdict: 'confirmed' }))) + '\n```')
     }
     const findings = Array.from({ length: 25 }, (_, i) => mkFinding(i))
-    const verdicts = await verifyFindingsBatch(findings, { meta, cwd: '/tmp', model: 'cheap' }, () => {}, agent)
+    const verdicts = await verifyFindingsBatch(findings, { meta, cwd: '/tmp' }, () => {}, agent)
     expect(prompts).toHaveLength(2)
     expect(prompts[1]).toContain('"index": 20')
     expect(verdicts).toHaveLength(25)

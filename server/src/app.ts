@@ -13,7 +13,9 @@ import { dedupeFindings } from './review/dedup.js'
 import { commentMarker, fingerprint, parseFingerprint } from './review/fingerprint.js'
 import { countDiffLines } from './review/findings.js'
 import { groupSkills } from './review/grouping.js'
-import { runReview, sdkQuery, type AgentQuery } from './review/runner.js'
+import { profileById } from './models/profiles.js'
+import { queryFor } from './models/resolve.js'
+import { runReview, type AgentQuery } from './review/runner.js'
 import { verifyFindingsBatch } from './review/verify.js'
 import { makeTaskPool } from './queue.js'
 import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
@@ -96,7 +98,7 @@ export function buildApp(
   }
 
   const configPath = deps.configPath ?? DEFAULT_CONFIG_PATH
-  const agentQuery = deps.agentQuery ?? sdkQuery
+  const agentQuery = deps.agentQuery
   const clientFactory = deps.clientFactory ?? makeClient
   const app = Fastify()
   const events = new EventEmitter()
@@ -294,6 +296,8 @@ export function buildApp(
       // Throws → the outer catch fails the run: never review without a fresh context pack.
       writeContextPack(cwd, ctx.meta, ctx.diff)
       emit({ kind: 'status', text: 'Starting review agent…', at: new Date().toISOString() })
+      const reviewQuery = agentQuery ?? queryFor(profileById(c, c.reviewProfile))
+      const verifyQuery = agentQuery ?? queryFor(profileById(c, c.verifyProfile))
       const all = scanSkillDirs(c.skillDirs)
       const selected = all
         .filter((sk) => ctx.body.skills.includes(sk.name))
@@ -321,11 +325,10 @@ export function buildApp(
                 skills: group[0].name === 'general' ? [] : group,
                 focus: ctx.body.focus,
                 cwd,
-                model: c.model,
-                reformatModel: c.verifyModel,
+                query: reviewQuery,
+                reformatQuery: verifyQuery,
               },
               wrappedEmit,
-              agentQuery,
             )
             return {
               results: group.map((g) => ({
@@ -359,12 +362,7 @@ export function buildApp(
       run.verify = doVerify
       if (doVerify && findings.length > 0 && !allFailed) {
         emit({ kind: 'status', text: `Verifying ${findings.length} findings…`, at: new Date().toISOString() })
-        const verdicts = await verifyFindingsBatch(
-          findings,
-          { meta: ctx.meta, cwd, model: c.verifyModel },
-          emit,
-          agentQuery,
-        )
+        const verdicts = await verifyFindingsBatch(findings, { meta: ctx.meta, cwd }, emit, verifyQuery)
         findings.forEach((f, i) => {
           f.verdict = verdicts[i].verdict
           if (verdicts[i].reason) f.verifierReason = verdicts[i].reason
