@@ -103,4 +103,44 @@ describe('config', () => {
       expect(loadConfig(path).maxConcurrentRuns).toBe(2) // min(1) violated → field default
     })
   })
+
+  describe('model profiles', () => {
+    it('defaults modelProfiles, reviewProfile, and verifyProfile', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(path, JSON.stringify({}))
+      const cfg = loadConfig(path)
+      expect(cfg.modelProfiles.map((p) => p.id)).toEqual(['claude-sonnet', 'claude-haiku'])
+      expect(cfg.reviewProfile).toBe('claude-sonnet')
+      expect(cfg.verifyProfile).toBe('claude-haiku')
+    })
+
+    it('migrates legacy model/verifyModel strings into synthesized profiles', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(path, JSON.stringify({ model: 'claude-opus-4-8', verifyModel: 'claude-sonnet-5' }))
+      const cfg = loadConfig(path)
+      const review = cfg.modelProfiles.find((p) => p.id === cfg.reviewProfile)!
+      const verify = cfg.modelProfiles.find((p) => p.id === cfg.verifyProfile)!
+      expect(review.kind).toBe('claude')
+      expect((review as any).model).toBe('claude-opus-4-8')
+      expect((verify as any).model).toBe('claude-sonnet-5')
+    })
+
+    it('does NOT migrate when modelProfiles is explicitly stored', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'prr-cfg-'))
+      const path = join(dir, 'config.json')
+      writeFileSync(
+        path,
+        JSON.stringify({
+          model: 'claude-opus-4-8',
+          modelProfiles: [{ id: 'mine', label: 'Mine', kind: 'claude', model: 'claude-sonnet-5' }],
+          reviewProfile: 'mine',
+        }),
+      )
+      const cfg = loadConfig(path)
+      expect(cfg.modelProfiles.map((p) => p.id)).toEqual(['mine'])
+      expect(cfg.reviewProfile).toBe('mine')
+    })
+  })
 })
