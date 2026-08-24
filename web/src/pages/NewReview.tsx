@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { createRun, getConfig, getSkills, listRuns } from '../api.js'
 import { submitBatch, type BatchOutcome } from '../lib/batch.js'
 import { filterSkills, inferCategory } from '../lib/skills.js'
+import { timeAgo } from '../lib/time.js'
 import { parsePrUrlLines } from '../lib/urls.js'
 import type { ModelProfile, RunRecord, SkillInfo } from '../types.js'
 
@@ -40,17 +41,6 @@ const DEPTH_OPTIONS: { value: Depth; label: string; hint: string }[] = [
   { value: 'balanced', label: 'Balanced', hint: 'Groups of 3 skills per agent — solid quality at roughly a third of the cost.' },
   { value: 'economy', label: 'Economy', hint: 'All skills in a single agent — cheapest, lighter per-skill attention.' },
 ]
-
-function timeAgo(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime()
-  const minutes = Math.floor(diffMs / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 function sourceLabel(source: string): string {
   return source.split('/').filter(Boolean).pop() ?? source
