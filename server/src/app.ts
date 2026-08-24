@@ -7,10 +7,10 @@ import { PrAuthError } from './providers/errors.js'
 import { makeClient } from './providers/factory.js'
 import { parsePrUrl } from './providers/parsePrUrl.js'
 import { RepoCache, sweepStrandedWorktrees } from './repos/cache.js'
-import { formatComment } from './review/comment.js'
 import { writeContextPack } from './review/contextPack.js'
 import { dedupeFindings } from './review/dedup.js'
-import { commentMarker, fingerprint, parseFingerprint } from './review/fingerprint.js'
+import { fingerprint } from './review/fingerprint.js'
+import { postFindingComments, readExistingFingerprints } from './review/post.js'
 import { countDiffLines } from './review/findings.js'
 import { groupSkills } from './review/grouping.js'
 import { profileById, type ModelProfile } from './models/profiles.js'
@@ -59,24 +59,6 @@ export function sweepStrandedRuns(runsDir: string): void {
     run.error = 'Server restarted while this run was in progress'
     run.finishedAt = new Date().toISOString()
     s.save(run)
-  }
-}
-
-/** Reads existing PR comments and returns fp→resolved plus whether the read succeeded. */
-async function readExistingFingerprints(
-  client: PrProviderClient,
-  pr: PrRef,
-): Promise<{ fps: Map<string, boolean>; dedupeChecked: boolean }> {
-  const fps = new Map<string, boolean>()
-  try {
-    for (const c of await client.listComments(pr)) {
-      const fp = parseFingerprint(c.body)
-      if (fp === undefined) continue
-      fps.set(fp, (fps.get(fp) ?? false) || c.resolved)
-    }
-    return { fps, dedupeChecked: true }
-  } catch {
-    return { fps, dedupeChecked: false }
   }
 }
 
@@ -459,34 +441,7 @@ export function buildApp(
     if (!run) return reply.code(404).send({ error: 'Run not found' })
     const c = cfg()
     const client = clientFactory(run.pr, c)
-    const { fps, dedupeChecked } = await readExistingFingerprints(client, run.pr)
-    const posted: number[] = []
-    const skipped: { index: number; reason: 'already-posted' | 'resolved' }[] = []
-    const failed: { index: number; error: string }[] = []
-    for (const i of findingIndexes) {
-      const f = run.findings[i]
-      if (!f) continue
-      const fp = fingerprint(run.pr, f)
-      if (fps.has(fp)) {
-        skipped.push({ index: i, reason: fps.get(fp) ? 'resolved' : 'already-posted' })
-        continue
-      }
-      const text = `${formatComment(f)}\n\n${commentMarker(fp)}`
-      try {
-        const commentId = await client.postInlineComment(run.pr, { path: f.file, line: f.line, text })
-        posted.push(commentId)
-        run.postedCommentIds.push(commentId)
-        s.save(run)
-        // Record the fingerprint as posted (open, i.e. not resolved) so a later finding in
-        // this same batch with an identical fingerprint (same file+category+summary, just a
-        // different line) is skipped as 'already-posted' instead of double-posting.
-        fps.set(fp, false)
-      } catch (err: any) {
-        failed.push({ index: i, error: err.message })
-        break
-      }
-    }
-    return { posted, skipped, failed, dedupeChecked }
+    return postFindingComments(client, run, findingIndexes, (r) => s.save(r))
   })
 
   app.get('/api/runs/:id/post-preview', async (req, reply) => {
