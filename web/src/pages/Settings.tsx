@@ -17,14 +17,16 @@ import {
   removeSkillSource,
 } from '../api.js'
 import { isSkillRepoDir } from '../lib/skills.js'
-import type { Config, SkillInfo } from '../types.js'
+import type { Config, ModelProfile, SkillInfo } from '../types.js'
 
-const MODELS = [
-  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5 — balanced (recommended)' },
-  { id: 'claude-opus-4-8', label: 'Claude Opus 4.8 — most capable Opus' },
-  { id: 'claude-fable-5', label: 'Claude Fable 5 — highest capability' },
-  { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 — fastest / cheapest' },
-] as const
+const SELECT_CLS =
+  'border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring w-full rounded-md border p-3 text-sm shadow-xs outline-none'
+
+const EMPTY_DRAFTS: Record<'claude' | 'cli' | 'openai', Record<string, string>> = {
+  claude: { id: '', label: '', model: '' },
+  cli: { id: '', label: '', command: '' },
+  openai: { id: '', label: '', baseUrl: '', apiKey: '', model: '' },
+}
 
 export function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null)
@@ -168,42 +170,10 @@ export function Settings() {
 
       <Card shadow="sm">
         <Card.Header>
-          <Card.Title>Review engine</Card.Title>
+          <Card.Title>Review models</Card.Title>
         </Card.Header>
         <Card.Content className="flex flex-col gap-4 pt-0">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="model">Model</Label>
-            {(() => {
-              const isKnown = MODELS.some((m) => m.id === cfg.model)
-              return (
-                <>
-                  <select
-                    id="model"
-                    value={isKnown ? cfg.model : 'custom'}
-                    onChange={(e) =>
-                      set({ model: e.target.value === 'custom' ? '' : e.target.value })
-                    }
-                    className="border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring flex w-full rounded-md border p-3 text-sm shadow-xs outline-none"
-                  >
-                    {MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                    <option value="custom">Custom…</option>
-                  </select>
-                  {!isKnown && (
-                    <Input
-                      aria-label="Custom model ID"
-                      placeholder="e.g. claude-opus-4-8 or a dated snapshot"
-                      value={cfg.model}
-                      onChange={(e) => set({ model: e.target.value })}
-                    />
-                  )}
-                </>
-              )
-            })()}
-          </div>
+          <ModelProfilesEditor cfg={cfg} set={set} />
           <div className="flex flex-col gap-2">
             <Label htmlFor="diff-warn">Diff warning threshold (changed lines)</Label>
             <Input
@@ -238,6 +208,151 @@ export function Settings() {
         {saved && <p className="text-success text-sm">Saved.</p>}
       </div>
     </main>
+  )
+}
+
+function ModelProfilesEditor({ cfg, set }: { cfg: Config; set: (patch: Partial<Config>) => void }) {
+  const [kind, setKind] = useState<'claude' | 'cli' | 'openai'>('claude')
+  const [draft, setDraft] = useState<Record<string, string>>(EMPTY_DRAFTS.claude)
+  const [rowError, setRowError] = useState('')
+
+  const referenced = (id: string) => id === cfg.reviewProfile || id === cfg.verifyProfile
+
+  const remove = (id: string) => {
+    if (referenced(id)) {
+      setRowError(`"${id}" is the default review or verify model — pick another default first.`)
+      return
+    }
+    setRowError('')
+    set({ modelProfiles: cfg.modelProfiles.filter((p) => p.id !== id) })
+  }
+
+  const add = () => {
+    const id = draft.id.trim()
+    if (!id || cfg.modelProfiles.some((p) => p.id === id)) {
+      setRowError(id ? `A profile named "${id}" already exists.` : 'Profile id is required.')
+      return
+    }
+    setRowError('')
+    const label = draft.label.trim() || id
+    const profile: ModelProfile =
+      kind === 'claude'
+        ? { id, label, kind, model: draft.model.trim() }
+        : kind === 'cli'
+          ? { id, label, kind, command: draft.command.trim().split(/\s+/)[0], args: draft.command.trim().split(/\s+/).slice(1) }
+          : { id, label, kind, baseUrl: draft.baseUrl.trim(), apiKey: draft.apiKey, model: draft.model.trim() }
+    set({ modelProfiles: [...cfg.modelProfiles, profile] })
+    setDraft({ ...EMPTY_DRAFTS[kind] })
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        {cfg.modelProfiles.map((p) => (
+          <div key={p.id} className="border-muted-200 flex items-center gap-2 rounded-md border px-3 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm">
+              <span className="font-medium">{p.label}</span>{' '}
+              <span className="text-muted-foreground font-family-mono text-xs">
+                {p.id} · {p.kind}
+                {p.kind === 'claude' ? ` · ${p.model}` : p.kind === 'openai' ? ` · ${p.model}` : ` · ${p.command}`}
+              </span>
+            </span>
+            <Button
+              type="button"
+              variant="ghost-destructive"
+              size="icon-sm"
+              aria-label={`Remove profile ${p.id}`}
+              onClick={() => remove(p.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+        {rowError && <p className="text-destructive text-xs">{rowError}</p>}
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:w-44 sm:shrink-0">
+          <Label htmlFor="review-profile">Default review model</Label>
+          <select
+            id="review-profile"
+            value={cfg.reviewProfile}
+            onChange={(e) => set({ reviewProfile: e.target.value })}
+            className={SELECT_CLS}
+          >
+            {cfg.modelProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex flex-col gap-2 sm:w-44 sm:shrink-0">
+          <Label htmlFor="verify-profile">Verify model</Label>
+          <select
+            id="verify-profile"
+            value={cfg.verifyProfile}
+            onChange={(e) => set({ verifyProfile: e.target.value })}
+            className={SELECT_CLS}
+          >
+            {cfg.modelProfiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="border-muted-200 flex flex-col gap-2 border-t pt-4">
+        <Label>Add profile</Label>
+        <div className="flex gap-2">
+          {(['claude', 'cli', 'openai'] as const).map((k) => (
+            <Button
+              key={k}
+              type="button"
+              size="sm"
+              variant={kind === k ? 'default' : 'outline-muted'}
+              onClick={() => {
+                setKind(k)
+                setDraft({ ...EMPTY_DRAFTS[k] })
+              }}
+            >
+              {k}
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input placeholder="id (slug)" value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value })} />
+          <Input placeholder="label" value={draft.label} onChange={(e) => setDraft({ ...draft, label: e.target.value })} />
+        </div>
+        {kind === 'claude' && (
+          <Input placeholder="model id, e.g. claude-sonnet-5" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} />
+        )}
+        {kind === 'cli' && (
+          <>
+            <Input
+              placeholder="command line, e.g. codex exec --sandbox read-only --cd {cwd} -"
+              value={draft.command}
+              onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+            />
+            <p className="text-muted-foreground text-xs">
+              {'{cwd}'} is replaced with the checkout path; {'{prompt}'} with the prompt (omitted → prompt on stdin). Include the CLI's own read-only/sandbox flags — the tool cannot inject them.
+            </p>
+          </>
+        )}
+        {kind === 'openai' && (
+          <div className="flex flex-col gap-2">
+            <Input placeholder="base URL, e.g. https://api.moonshot.ai/v1" value={draft.baseUrl} onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })} />
+            <Input type="password" placeholder="API key" value={draft.apiKey} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} />
+            <Input placeholder="model, e.g. kimi-k2" value={draft.model} onChange={(e) => setDraft({ ...draft, model: e.target.value })} />
+          </div>
+        )}
+        <Button type="button" variant="outline-muted" className="w-fit" onClick={add}>
+          Add profile
+        </Button>
+      </div>
+    </div>
   )
 }
 
