@@ -7,11 +7,11 @@ import { cn } from '@/lib/utils'
 
 import type { Finding, Severity } from '../types.js'
 
-const SEVERITY_BORDER: Record<Severity, string> = {
-  high: 'border-l-destructive',
-  medium: 'border-l-warning',
-  low: 'border-l-warning-400',
-  info: 'border-l-primary-400',
+const SEVERITY_BAR: Record<Severity, string> = {
+  high: 'before:bg-destructive',
+  medium: 'before:bg-warning',
+  low: 'before:bg-warning-400',
+  info: 'before:bg-primary-400',
 }
 
 export function FindingCard({
@@ -29,7 +29,13 @@ export function FindingCard({
   return (
     <Card
       shadow="sm"
-      className={cn('border-l-2', SEVERITY_BORDER[finding.severity], finding.verdict === 'unverified' && 'opacity-70')}
+      className={cn(
+        // severity accent: an inset bar that stops short of the rounded corners, instead of
+        // a border-left that bends around them
+        'relative before:absolute before:top-4 before:bottom-4 before:left-0 before:w-0.5 before:rounded-full',
+        SEVERITY_BAR[finding.severity],
+        finding.verdict === 'unverified' && 'opacity-70',
+      )}
     >
       <Card.Content className="flex items-start gap-3 py-4">
         <Checkbox

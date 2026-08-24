@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, RefreshCw, Trash2 } from 'lucide-react'
+import { AlertTriangle, Bot, Globe, RefreshCw, Terminal, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Alert } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select } from '@/components/ui/select'
+import { Tabs } from '@/components/ui/tabs'
 
 import {
   addGithubSkillSource,
@@ -19,9 +22,6 @@ import {
 import { isSkillRepoDir } from '../lib/skills.js'
 import type { Config, ModelProfile, SkillInfo } from '../types.js'
 
-const SELECT_CLS =
-  'border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring w-full rounded-md border p-3 text-sm shadow-xs outline-none'
-
 const EMPTY_DRAFTS: Record<'claude' | 'cli' | 'openai', Record<string, string>> = {
   claude: { id: '', label: '', model: '' },
   cli: { id: '', label: '', command: '' },
@@ -30,12 +30,15 @@ const EMPTY_DRAFTS: Record<'claude' | 'cli' | 'openai', Record<string, string>> 
 
 export function Settings() {
   const [cfg, setCfg] = useState<Config | null>(null)
-  const [saved, setSaved] = useState(false)
+  const [savedCfg, setSavedCfg] = useState<Config | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     getConfig()
-      .then(setCfg)
+      .then((c) => {
+        setCfg(c)
+        setSavedCfg(c)
+      })
       .catch((e) => setError(e?.message ?? 'Failed to load settings'))
   }, [])
 
@@ -54,33 +57,46 @@ export function Settings() {
 
   const set = (patch: Partial<Config>) => {
     setCfg({ ...cfg, ...patch })
-    setSaved(false)
   }
+
+  const dirty = savedCfg !== null && JSON.stringify(cfg) !== JSON.stringify(savedCfg)
 
   const handleSave = () => {
     setError('')
     putConfig(cfg)
-      .then(() => setSaved(true))
-      .catch((e) => setError(e?.message ?? 'Failed to save'))
+      .then(() => {
+        setSavedCfg(cfg)
+        toast.success('Settings saved')
+      })
+      .catch((e) => toast.error(e?.message ?? 'Failed to save settings'))
   }
 
   return (
-    <main className="flex flex-col gap-10">
-      <div className="flex flex-col gap-2">
-        <h1 className="font-family-display text-3xl">Settings</h1>
-        <p className="text-muted-foreground text-sm">
-          Configure the Bitbucket connection, skills, review engine, and cache.
+    <div className="flex flex-col gap-6 pb-20">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Connections, review models, skills, and storage.
         </p>
       </div>
 
       {error && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <Alert.Title>Couldn't save settings</Alert.Title>
+          <Alert.Title>Something went wrong</Alert.Title>
           <Alert.Description>{error}</Alert.Description>
         </Alert>
       )}
 
+      <Tabs defaultValue="connections">
+        <Tabs.List>
+          <Tabs.Trigger value="connections">Connections</Tabs.Trigger>
+          <Tabs.Trigger value="models">Models</Tabs.Trigger>
+          <Tabs.Trigger value="skills">Skills</Tabs.Trigger>
+          <Tabs.Trigger value="storage">Storage</Tabs.Trigger>
+        </Tabs.List>
+
+        <Tabs.Content value="connections" className="flex flex-col gap-6">
       <Card shadow="sm">
         <Card.Header>
           <Card.Title>Bitbucket</Card.Title>
@@ -150,7 +166,9 @@ export function Settings() {
           </div>
         </Card.Content>
       </Card>
+        </Tabs.Content>
 
+        <Tabs.Content value="skills">
       <Card shadow="sm">
         <Card.Header>
           <Card.Title>Skill sources</Card.Title>
@@ -167,7 +185,9 @@ export function Settings() {
           />
         </Card.Content>
       </Card>
+        </Tabs.Content>
 
+        <Tabs.Content value="models">
       <Card shadow="sm">
         <Card.Header>
           <Card.Title>Review models</Card.Title>
@@ -185,7 +205,9 @@ export function Settings() {
           </div>
         </Card.Content>
       </Card>
+        </Tabs.Content>
 
+        <Tabs.Content value="storage">
       <Card shadow="sm">
         <Card.Header>
           <Card.Title>Storage</Card.Title>
@@ -202,12 +224,21 @@ export function Settings() {
           <ClearCache />
         </Card.Content>
       </Card>
+        </Tabs.Content>
+      </Tabs>
 
-      <div className="flex items-center gap-3">
-        <Button onClick={handleSave}>Save changes</Button>
-        {saved && <p className="text-success text-sm">Saved.</p>}
-      </div>
-    </main>
+      {dirty && (
+        <div className="animate-in slide-in-from-bottom-4 border-border bg-popover fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full border py-2 pr-2 pl-5 shadow-deep">
+          <span className="text-sm">Unsaved changes</span>
+          <Button variant="ghost-muted" size="sm" className="rounded-full" onClick={() => setCfg(savedCfg)}>
+            Discard
+          </Button>
+          <Button size="sm" className="rounded-full" onClick={handleSave}>
+            Save
+          </Button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -248,8 +279,11 @@ function ModelProfilesEditor({ cfg, set }: { cfg: Config; set: (patch: Partial<C
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        {cfg.modelProfiles.map((p) => (
-          <div key={p.id} className="border-muted-200 flex items-center gap-2 rounded-md border px-3 py-2">
+        {cfg.modelProfiles.map((p) => {
+          const KindIcon = p.kind === 'claude' ? Bot : p.kind === 'cli' ? Terminal : Globe
+          return (
+          <div key={p.id} className="border-border flex items-center gap-2 rounded-md border px-3 py-2">
+            <KindIcon className="text-muted-foreground h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate text-sm">
               <span className="font-medium">{p.label}</span>{' '}
               <span className="text-muted-foreground font-family-mono text-xs">
@@ -267,40 +301,41 @@ function ModelProfilesEditor({ cfg, set }: { cfg: Config; set: (patch: Partial<C
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
-        ))}
+          )
+        })}
         {rowError && <p className="text-destructive text-xs">{rowError}</p>}
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="flex flex-col gap-2 sm:w-44 sm:shrink-0">
-          <Label htmlFor="review-profile">Default review model</Label>
-          <select
-            id="review-profile"
-            value={cfg.reviewProfile}
-            onChange={(e) => set({ reviewProfile: e.target.value })}
-            className={SELECT_CLS}
-          >
-            {cfg.modelProfiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col gap-2 sm:w-52 sm:shrink-0">
+          <Label>Default review model</Label>
+          <Select value={cfg.reviewProfile} onValueChange={(v) => set({ reviewProfile: v })}>
+            <Select.Trigger aria-label="Default review model">
+              <Select.Value />
+            </Select.Trigger>
+            <Select.Content>
+              {cfg.modelProfiles.map((p) => (
+                <Select.Item key={p.id} value={p.id}>
+                  {p.label}
+                </Select.Item>
+              ))}
+            </Select.Content>
+          </Select>
         </div>
-        <div className="flex flex-col gap-2 sm:w-44 sm:shrink-0">
-          <Label htmlFor="verify-profile">Verify model</Label>
-          <select
-            id="verify-profile"
-            value={cfg.verifyProfile}
-            onChange={(e) => set({ verifyProfile: e.target.value })}
-            className={SELECT_CLS}
-          >
-            {cfg.modelProfiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col gap-2 sm:w-52 sm:shrink-0">
+          <Label>Verify model</Label>
+          <Select value={cfg.verifyProfile} onValueChange={(v) => set({ verifyProfile: v })}>
+            <Select.Trigger aria-label="Verify model">
+              <Select.Value />
+            </Select.Trigger>
+            <Select.Content>
+              {cfg.modelProfiles.map((p) => (
+                <Select.Item key={p.id} value={p.id}>
+                  {p.label}
+                </Select.Item>
+              ))}
+            </Select.Content>
+          </Select>
         </div>
       </div>
 
@@ -380,20 +415,23 @@ function ClearCache() {
       <p className="text-sm font-medium">Clear a cached repo</p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <div className="flex flex-col gap-2 sm:w-40 sm:shrink-0">
-          <Label htmlFor="clear-cache-provider">Provider</Label>
-          <select
-            id="clear-cache-provider"
+          <Label>Provider</Label>
+          <Select
             value={provider}
-            onChange={(e) => {
-              setProvider(e.target.value as 'bitbucket' | 'github')
+            onValueChange={(v) => {
+              setProvider(v as 'bitbucket' | 'github')
               setCleared(false)
               setClearError('')
             }}
-            className="border-muted-200 bg-background hover:not-disabled:border-primary hover:not-disabled:ring-primary hover:not-disabled:ring focus-visible:ring-primary focus-visible:border-primary focus-visible:ring w-full rounded-md border p-3 text-sm shadow-xs outline-none"
           >
-            <option value="bitbucket">Bitbucket</option>
-            <option value="github">GitHub</option>
-          </select>
+            <Select.Trigger aria-label="Provider">
+              <Select.Value />
+            </Select.Trigger>
+            <Select.Content>
+              <Select.Item value="bitbucket">Bitbucket</Select.Item>
+              <Select.Item value="github">GitHub</Select.Item>
+            </Select.Content>
+          </Select>
         </div>
         <Input
           placeholder="workspace"
