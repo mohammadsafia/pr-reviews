@@ -2,6 +2,8 @@
 
 A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claude. Paste a PR URL, select review skills, and a Claude agent analyzes the PR against a real repository checkout. Findings render in the browser with inline commenting capability—selected findings can be posted back as comments on the PR after explicit confirmation.
 
+The UI is a dark-first dashboard: compose reviews on the home page, monitor concurrent runs under Runs, and manage connections/models/skills in Settings (light theme available via the sidebar toggle).
+
 ## Prerequisites
 
 - **Node.js** 20 or higher
