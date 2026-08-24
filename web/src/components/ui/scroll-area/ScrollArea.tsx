@@ -7,8 +7,11 @@ import { cn } from '@/lib/utils'
 const ScrollArea: FC<ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>> = ({ className, children, ...props }) => (
   <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn('relative overflow-hidden', className)} {...props}>
     {/* max-h-[inherit] passes a max-h-* cap set on the Root down to the viewport — without
-        it Radix's viewport never constrains, so the content clips instead of scrolling */}
-    <ScrollAreaPrimitive.Viewport className="h-full max-h-[inherit] w-full rounded-[inherit]">
+        it Radix's viewport never constrains, so the content clips instead of scrolling.
+        The [&>div] override neutralizes Radix's injected `display: table` wrapper, which
+        otherwise expands to intrinsic content width and defeats truncation (author
+        !important beats inline styles; the inline min-width:100% is harmless on a block). */}
+    <ScrollAreaPrimitive.Viewport className="h-full max-h-[inherit] w-full rounded-[inherit] [&>div]:!block">
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollAreaPrimitive.Scrollbar

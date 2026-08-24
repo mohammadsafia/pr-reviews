@@ -54,7 +54,8 @@ const DialogPanel: FC<DialogPanelProps> = ({ ref, className, children, ...props 
       onWheel={(e) => e.stopPropagation()}
       data-slot="dialog-panel"
       className={cn(
-        'bg-background grid w-full max-w-lg gap-6 rounded-2xl py-6 shadow-lg',
+        'bg-background flex w-full max-w-lg flex-col gap-6 overflow-hidden rounded-2xl py-6 shadow-lg',
+        'max-h-[85vh]',
         'fixed left-1/2 top-1/2 z-50 translate-x-[-50%] translate-y-[-50%] duration-200',
         'focus:outline-none',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
@@ -91,7 +92,9 @@ const DialogHeaderDescription: FC<ComponentPropsWithoutRef<typeof DialogPrimitiv
 )
 
 const DialogContent: FC<DialogContentProps> = ({ className, ...props }) => (
-  <section data-slot="dialog-content" className={cn('px-6', className)} {...props} />
+  // min-h-0 + overflow-y-auto: the content section scrolls inside the height-capped flex
+  // panel, so the footer below it always stays visible.
+  <section data-slot="dialog-content" className={cn('min-h-0 overflow-y-auto px-6', className)} {...props} />
 )
 
 const DialogFooter: FC<HTMLAttributes<HTMLDivElement>> = ({ className, ...props }) => (
