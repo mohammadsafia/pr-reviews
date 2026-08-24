@@ -24,6 +24,7 @@ export async function createRun(input: {
   verify?: boolean
   force?: boolean
   depth?: 'thorough' | 'balanced' | 'economy'
+  profile?: string
 }): Promise<{ id?: string; error?: string; diffLines?: number; status: number }> {
   try {
     const res = await fetch('/api/runs', {

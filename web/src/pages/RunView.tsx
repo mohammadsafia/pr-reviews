@@ -233,6 +233,7 @@ export function RunView() {
       focus: run.focus,
       verify: run.verify,
       depth: run.depth,
+      profile: run.reviewProfile,
       force: true,
     })
     if (res.id) navigate(`/runs/${res.id}`)
@@ -252,6 +253,7 @@ export function RunView() {
       focus: run.focus,
       verify: run.verify,
       depth: run.depth,
+      profile: run.reviewProfile,
       force: true,
     })
     if (res.id) navigate(`/runs/${res.id}`)
@@ -293,6 +295,11 @@ export function RunView() {
           {run.depth && (
             <Badge variant="muted" size="xs" className="capitalize">
               {run.depth}
+            </Badge>
+          )}
+          {run.reviewProfile && (
+            <Badge variant="muted" size="xs">
+              {run.reviewProfile}
             </Badge>
           )}
         </div>

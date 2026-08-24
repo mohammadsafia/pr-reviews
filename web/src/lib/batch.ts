@@ -15,6 +15,7 @@ export async function submitBatch(
     focus?: string
     verify: boolean
     depth?: 'thorough' | 'balanced' | 'economy'
+    profile?: string
     force?: boolean
   },
   createRunFn: typeof createRun,

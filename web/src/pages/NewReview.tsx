@@ -15,7 +15,7 @@ import { createRun, getConfig, getSkills, listRuns } from '../api.js'
 import { submitBatch, type BatchOutcome } from '../lib/batch.js'
 import { filterSkills, inferCategory } from '../lib/skills.js'
 import { parsePrUrlLines } from '../lib/urls.js'
-import type { RunRecord, SkillInfo } from '../types.js'
+import type { ModelProfile, RunRecord, SkillInfo } from '../types.js'
 
 export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[]> {
   const g = new Map<string, SkillInfo[]>()
@@ -29,6 +29,7 @@ export function groupSkillsBySource(skills: SkillInfo[]): Map<string, SkillInfo[
 const LAST_SKILLS_KEY = 'pr-reviewer.lastSkills'
 const VERIFY_KEY = 'pr-reviewer.verify'
 const DEPTH_KEY = 'pr-reviewer.depth'
+const PROFILE_KEY = 'pr-reviewer.profile'
 
 type Depth = 'thorough' | 'balanced' | 'economy'
 const DEPTH_OPTIONS: { value: Depth; label: string; hint: string }[] = [
@@ -66,6 +67,8 @@ export function NewReview() {
   const [depth, setDepth] = useState<Depth | null>(
     () => localStorage.getItem(DEPTH_KEY) as Depth | null,
   )
+  const [profile, setProfile] = useState<string | null>(() => localStorage.getItem(PROFILE_KEY))
+  const [profiles, setProfiles] = useState<ModelProfile[]>([])
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [error, setError] = useState('')
   const [results, setResults] = useState<BatchOutcome[]>([])
@@ -78,17 +81,28 @@ export function NewReview() {
     listRuns().then(setRuns).catch(() => {})
   }, [])
 
-  // First-ever visit (no stored choice): preselect the configured default depth.
+  // Load profiles for the model picker; on a first-ever visit (no stored choice) also
+  // preselect the configured defaults for depth and profile.
   useEffect(() => {
-    if (depth !== null) return
     getConfig()
-      .then((c) => setDepth((cur) => cur ?? c.defaultDepth))
-      .catch(() => setDepth((cur) => cur ?? 'balanced'))
-  }, [depth])
+      .then((c) => {
+        setProfiles(c.modelProfiles)
+        setDepth((cur) => cur ?? c.defaultDepth)
+        setProfile((cur) => cur ?? c.reviewProfile)
+      })
+      .catch(() => {
+        setDepth((cur) => cur ?? 'balanced')
+      })
+  }, [])
 
   function pickDepth(d: Depth) {
     setDepth(d)
     localStorage.setItem(DEPTH_KEY, d)
+  }
+
+  function pickProfile(id: string) {
+    setProfile(id)
+    localStorage.setItem(PROFILE_KEY, id)
   }
 
   function toggle(name: string) {
@@ -136,6 +150,7 @@ export function NewReview() {
         focus: focus || undefined,
         verify,
         depth: depth ?? undefined,
+        profile: profile ?? undefined,
         force: forceUrl !== undefined,
       }
       const outcomes = await submitBatch(targets, opts, createRun)
@@ -365,6 +380,29 @@ export function NewReview() {
           {DEPTH_OPTIONS.find((o) => o.value === depth)?.hint ?? 'Loading default…'}
         </p>
       </div>
+
+      {profiles.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h2 className="text-sm font-medium">Review model</h2>
+          <div className="flex flex-wrap gap-2">
+            {profiles.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => pickProfile(p.id)}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                  profile === p.id
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-muted-200 text-muted-foreground hover:border-primary hover:text-primary',
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-medium">Recent runs</h2>

@@ -1,3 +1,8 @@
+export type ModelProfile =
+  | { id: string; label: string; kind: 'claude'; model: string }
+  | { id: string; label: string; kind: 'cli'; command: string; args: string[]; timeoutMs?: number }
+  | { id: string; label: string; kind: 'openai'; baseUrl: string; apiKey: string; model: string }
+
 export interface PrRef {
   provider: 'bitbucket' | 'github'
   workspace: string
@@ -52,6 +57,8 @@ export interface RunRecord {
   verify: boolean
   /** Review depth used for this run. Absent on runs stored before depth modes existed. */
   depth?: 'thorough' | 'balanced' | 'economy'
+  /** Model profile id this run reviewed with. Absent on runs stored before profiles existed. */
+  reviewProfile?: string
   status: RunStatus
   createdAt: string
   finishedAt?: string
@@ -80,6 +87,9 @@ export interface Config {
   verifyModel: string
   defaultDepth: 'thorough' | 'balanced' | 'economy'
   maxConcurrentRuns: number
+  modelProfiles: ModelProfile[]
+  reviewProfile: string
+  verifyProfile: string
   cacheDir: string
   runsDir: string
   diffWarnLines: number
