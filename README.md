@@ -9,7 +9,8 @@ The UI is a dark-first dashboard: compose reviews on the home page, monitor conc
 - **Node.js** 20 or higher
 - **git** (for repository cloning and operations)
 - **Claude Code login** OR `ANTHROPIC_API_KEY` environment variable — or any other configured model profile (see Model Profiles below)
-- **Bitbucket API token** with scopes: `pullrequest:read`, `pullrequest:write`, `repository:read`
+- **Bitbucket API token** with scopes: `pullrequest:read`, `pullrequest:write`, `repository:read` (plus `account:read` and a Workspace set in Settings for the "PRs awaiting your review" browser)
+- **GitHub token note:** the "PRs awaiting your review" browser only sees repos the token can read. To cover organization PRs, use a classic PAT with `repo` + `read:org` scopes (SSO-authorize it for each org), or a fine-grained PAT with the org as resource owner. `read:org` also enables team review requests (`team-review-requested`) — without it, only direct requests to you are listed.
 - **SSH key configured for bitbucket.org** (default clone method; HTTPS with API token selectable in Settings)
 
 ## Quick Start

@@ -125,12 +125,9 @@ export class GitHubClient implements PrProviderClient {
     return `https://x-access-token:${this.token}@github.com/${pr.workspace}/${pr.repo}.git`
   }
 
-  /** Open PRs where the authenticated user is a requested reviewer — one global search
-   * call (`review-requested:@me` resolves against the token's user). */
-  async listReviewerPrs(): Promise<ReviewerPr[]> {
-    const q = encodeURIComponent('is:pr is:open review-requested:@me')
+  private async searchPrs(query: string): Promise<ReviewerPr[]> {
     const data = (await (
-      await this.request(`${API}/search/issues?q=${q}&per_page=50&sort=updated`)
+      await this.request(`${API}/search/issues?q=${encodeURIComponent(query)}&per_page=50&sort=updated`)
     ).json()) as any
     const out: ReviewerPr[] = []
     for (const item of data.items ?? []) {
@@ -149,6 +146,44 @@ export class GitHubClient implements PrProviderClient {
         updatedAt: item.updated_at ?? '',
         url: item.html_url ?? `https://github.com/${owner}/${repo}/pull/${item.number}`,
       })
+    }
+    return out
+  }
+
+  /** Open PRs where the authenticated user is a requested reviewer. `review-requested:@me`
+   * only matches DIRECT requests, so requests addressed to a team the user is on are
+   * queried separately per team (`team-review-requested:org/slug`). Team enumeration needs
+   * `read:org` scope — when unavailable it degrades silently to direct requests only.
+   * Search visibility is bounded by the token: repos it cannot read never appear. */
+  async listReviewerPrs(): Promise<ReviewerPr[]> {
+    const direct = await this.searchPrs('is:pr is:open review-requested:@me')
+
+    let teams: { org: string; slug: string }[] = []
+    try {
+      const res = await this.fetchFn(`${API}/user/teams?per_page=100`, {
+        headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/vnd.github+json' },
+      })
+      if (res.ok) {
+        const list = (await res.json()) as any[]
+        teams = list.map((t) => ({ org: t.organization?.login ?? '', slug: t.slug ?? '' })).filter((t) => t.org && t.slug)
+      }
+    } catch {
+      // no read:org (or transient failure) — direct requests still cover the common case
+    }
+
+    const teamResults = await Promise.all(
+      teams.map((t) =>
+        this.searchPrs(`is:pr is:open team-review-requested:${t.org}/${t.slug}`).catch(() => [] as ReviewerPr[]),
+      ),
+    )
+
+    const seen = new Set<string>()
+    const out: ReviewerPr[] = []
+    for (const pr of [...direct, ...teamResults.flat()]) {
+      const key = `${pr.workspace}/${pr.repo}#${pr.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(pr)
     }
     return out
   }
