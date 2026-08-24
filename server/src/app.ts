@@ -10,7 +10,7 @@ import { RepoCache, sweepStrandedWorktrees } from './repos/cache.js'
 import { writeContextPack } from './review/contextPack.js'
 import { dedupeFindings } from './review/dedup.js'
 import { fingerprint } from './review/fingerprint.js'
-import { postFindingComments, readExistingFingerprints } from './review/post.js'
+import { autoSubmitIndexes, postFindingComments, readExistingFingerprints } from './review/post.js'
 import { countDiffLines } from './review/findings.js'
 import { groupSkills } from './review/grouping.js'
 import { profileById, type ModelProfile } from './models/profiles.js'
@@ -22,6 +22,7 @@ import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
 import { RunStore } from './store/runs.js'
 import type {
+  AutoSubmit,
   Depth,
   Finding,
   PrMeta,
@@ -200,6 +201,7 @@ export function buildApp(
       verify?: boolean
       depth?: Depth
       profile?: string
+      autoSubmit?: AutoSubmit
     }
     const c = cfg()
     let pr: PrRef
@@ -234,6 +236,12 @@ export function buildApp(
       return reply.code(400).send({ error: `Unknown model profile: ${body.profile}` })
     }
     const reviewProfileId = body.profile ?? c.reviewProfile
+    if (body.autoSubmit !== undefined) {
+      const ok =
+        ['high', 'medium', 'all'].includes(body.autoSubmit?.threshold as string) &&
+        typeof body.autoSubmit?.confirmedOnly === 'boolean'
+      if (!ok) return reply.code(400).send({ error: 'Invalid autoSubmit options' })
+    }
     const run = store().create({
       pr,
       prTitle: meta.title,
@@ -242,6 +250,7 @@ export function buildApp(
       verify: body.verify !== false,
       depth,
       reviewProfile: reviewProfileId,
+      autoSubmit: body.autoSubmit,
       status: 'queued',
     })
     runQueue.push(() => executeRun(run.id, { pr, meta, diff, depth, body }))
@@ -379,6 +388,29 @@ export function buildApp(
         run.error = `All ${run.skillResults.length} skill reviews failed`
       } else {
         run.status = 'completed'
+        if (run.autoSubmit && run.findings.length > 0) {
+          const indexes = autoSubmitIndexes(run.findings, run.autoSubmit)
+          if (indexes.length > 0) {
+            emit({ kind: 'status', text: `Auto-posting ${indexes.length} findings…`, at: new Date().toISOString() })
+            try {
+              const result = await postFindingComments(client, run, indexes, (r) => s!.save(r), { requireDedupe: true })
+              run.autoSubmitResult = {
+                posted: result.posted.length,
+                skipped: result.skipped.length,
+                failed: result.failed.length,
+                dedupeChecked: result.dedupeChecked,
+              }
+              const text = !result.dedupeChecked
+                ? 'Auto-post skipped: could not check existing comments — findings left for manual review.'
+                : `Auto-posted ${result.posted.length} comment${result.posted.length === 1 ? '' : 's'}.` +
+                  (result.skipped.length > 0 ? ` Skipped ${result.skipped.length}.` : '') +
+                  (result.failed.length > 0 ? ` Failed ${result.failed.length}.` : '')
+              emit({ kind: 'status', text, at: new Date().toISOString() })
+            } catch (err: any) {
+              emit({ kind: 'error', text: `Auto-post failed: ${err.message}`, at: new Date().toISOString() })
+            }
+          }
+        }
       }
     } catch (err: any) {
       if (s && run) {

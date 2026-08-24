@@ -2,6 +2,11 @@ export type Provider = 'bitbucket' | 'github'
 
 export type Depth = 'thorough' | 'balanced' | 'economy'
 
+export interface AutoSubmit {
+  threshold: 'high' | 'medium' | 'all'
+  confirmedOnly: boolean
+}
+
 export interface PrRef {
   provider: Provider
   workspace: string // Bitbucket workspace OR GitHub owner
@@ -75,6 +80,10 @@ export interface RunRecord {
   depth?: Depth
   /** Model profile id this run reviewed with. Absent on runs stored before profiles existed. */
   reviewProfile?: string
+  /** Auto-post options for this run; absent = off. */
+  autoSubmit?: AutoSubmit
+  /** Outcome of the auto-post step, set only when autoSubmit ran. */
+  autoSubmitResult?: { posted: number; skipped: number; failed: number; dedupeChecked: boolean }
   status: RunStatus
   createdAt: string
   finishedAt?: string

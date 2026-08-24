@@ -1,6 +1,21 @@
 import { formatComment } from './comment.js'
 import { commentMarker, fingerprint, parseFingerprint } from './fingerprint.js'
-import type { PrProviderClient, PrRef, RunRecord } from '../types.js'
+import type { AutoSubmit, Finding, PrProviderClient, PrRef, RunRecord } from '../types.js'
+
+const THRESHOLD_SETS: Record<AutoSubmit['threshold'], Set<string>> = {
+  high: new Set(['high']),
+  medium: new Set(['high', 'medium']),
+  all: new Set(['high', 'medium', 'low', 'info']),
+}
+
+/** Indexes of findings eligible for auto-posting under the run's auto-submit options. */
+export function autoSubmitIndexes(findings: Finding[], opts: AutoSubmit): number[] {
+  return findings
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => THRESHOLD_SETS[opts.threshold].has(f.severity))
+    .filter(({ f }) => !opts.confirmedOnly || f.verdict === 'confirmed')
+    .map(({ i }) => i)
+}
 
 /** Reads existing PR comments and returns fp→resolved plus whether the read succeeded. */
 export async function readExistingFingerprints(

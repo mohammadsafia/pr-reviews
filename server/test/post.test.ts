@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { postFindingComments } from '../src/review/post.js'
+import { autoSubmitIndexes, postFindingComments } from '../src/review/post.js'
 import { commentMarker, fingerprint } from '../src/review/fingerprint.js'
 import type { Finding, PrProviderClient, RunRecord } from '../src/types.js'
 
@@ -96,5 +96,30 @@ describe('postFindingComments', () => {
     const res = await postFindingComments(client, run, [0], () => {})
     expect(res.dedupeChecked).toBe(false)
     expect(posted).toHaveLength(1)
+  })
+})
+
+describe('autoSubmitIndexes', () => {
+  const f = (severity: Finding['severity'], verdict: Finding['verdict']): Finding => ({
+    ...mkFinding(0), severity, verdict,
+  })
+  const findings = [
+    f('high', 'confirmed'),    // 0
+    f('medium', 'confirmed'),  // 1
+    f('low', 'confirmed'),     // 2
+    f('high', 'unverified'),   // 3
+    f('info', 'unverified'),   // 4
+  ]
+  it('threshold high + confirmedOnly → only confirmed highs', () => {
+    expect(autoSubmitIndexes(findings, { threshold: 'high', confirmedOnly: true })).toEqual([0])
+  })
+  it('threshold medium + confirmedOnly → confirmed high and medium', () => {
+    expect(autoSubmitIndexes(findings, { threshold: 'medium', confirmedOnly: true })).toEqual([0, 1])
+  })
+  it('threshold all without confirmedOnly → everything', () => {
+    expect(autoSubmitIndexes(findings, { threshold: 'all', confirmedOnly: false })).toEqual([0, 1, 2, 3, 4])
+  })
+  it('confirmedOnly filters unverified even at threshold all', () => {
+    expect(autoSubmitIndexes(findings, { threshold: 'all', confirmedOnly: true })).toEqual([0, 1, 2])
   })
 })

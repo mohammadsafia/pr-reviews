@@ -759,4 +759,101 @@ describe('run pipeline integration', () => {
     expect(run.status).toBe('completed')
     expect(run.transcript.some((e: any) => /deleted-profile.*claude-sonnet/.test(e.text))).toBe(true)
   })
+
+  it('auto-submit posts the filtered findings on completion and records the result', async () => {
+    const path = tempConfigWithSkills(['skill-a'])
+    const high = { file: 'a.txt', line: 1, severity: 'high', category: 'bug', summary: 'bad', detail: 'd', suggestion: 'x', skill: 'skill-a' }
+    const low = { file: 'a.txt', line: 2, severity: 'low', category: 'style', summary: 'meh', detail: 'd', suggestion: 'x', skill: 'skill-a' }
+    const postedTexts: string[] = []
+    const client = {
+      ...fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      postInlineComment: async (_pr: any, c: any) => {
+        postedTexts.push(c.text)
+        return postedTexts.length
+      },
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => client,
+      agentQuery: fakeAgentPerSkill({ 'skill-a': [high, low] }),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: {
+        url: 'https://bitbucket.org/ws/repo/pull-requests/1',
+        skills: ['skill-a'],
+        autoSubmit: { threshold: 'medium', confirmedOnly: true },
+      },
+    })
+    expect(res.statusCode).toBe(202)
+    const run = await pollRun(app, res.json().id)
+    expect(run.status).toBe('completed')
+    expect(postedTexts).toHaveLength(1) // only the high finding passes threshold 'medium'
+    expect(postedTexts[0]).toContain('bad')
+    expect(run.autoSubmitResult).toEqual({ posted: 1, skipped: 0, failed: 0, dedupeChecked: true })
+    expect(run.postedCommentIds).toEqual([1])
+    expect(run.transcript.some((e: any) => /auto-posted 1 comment/i.test(e.text))).toBe(true)
+  })
+
+  it('auto-submit posts nothing when the existing-comment read fails (fail-closed)', async () => {
+    const path = tempConfigWithSkills(['skill-a'])
+    const high = { file: 'a.txt', line: 1, severity: 'high', category: 'bug', summary: 'bad', detail: 'd', suggestion: 'x', skill: 'skill-a' }
+    const postedTexts: string[] = []
+    const client = {
+      ...fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      listComments: async () => {
+        throw new Error('read failed')
+      },
+      postInlineComment: async () => {
+        postedTexts.push('x')
+        return 1
+      },
+    }
+    const app = buildApp({ configPath: path, clientFactory: () => client, agentQuery: fakeAgentPerSkill({ 'skill-a': [high] }) })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: {
+        url: 'https://bitbucket.org/ws/repo/pull-requests/1',
+        skills: ['skill-a'],
+        autoSubmit: { threshold: 'all', confirmedOnly: false },
+      },
+    })
+    const run = await pollRun(app, res.json().id)
+    expect(run.status).toBe('completed')
+    expect(postedTexts).toHaveLength(0)
+    expect(run.autoSubmitResult?.dedupeChecked).toBe(false)
+  })
+
+  it('rejects a malformed autoSubmit with 400 and never auto-posts on failed runs', async () => {
+    const path = tempConfigWithSkills(['skill-a'])
+    const postedTexts: string[] = []
+    const client = {
+      ...fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      postInlineComment: async () => {
+        postedTexts.push('x')
+        return 1
+      },
+    }
+    const app = buildApp({ configPath: path, clientFactory: () => client, agentQuery: fakeAgentPerSkill({ 'skill-a': 'fail' }) })
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], autoSubmit: { threshold: 'urgent', confirmedOnly: true } },
+    })
+    expect(bad.statusCode).toBe(400)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: {
+        url: 'https://bitbucket.org/ws/repo/pull-requests/1',
+        skills: ['skill-a'],
+        autoSubmit: { threshold: 'all', confirmedOnly: false },
+      },
+    })
+    const run = await pollRun(app, res.json().id)
+    expect(run.status).toBe('failed')
+    expect(postedTexts).toHaveLength(0)
+  })
 })
