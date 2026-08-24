@@ -624,3 +624,30 @@ describe('app', () => {
     expect(res.body).toContain('event: done')
   })
 })
+
+describe('model profile apiKey masking', () => {
+  it('masks openai apiKeys on GET and restores them on masked PUT', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'prr-app-'))
+    const path = join(dir, 'config.json')
+    const cfg = loadConfig(path)
+    cfg.modelProfiles = [
+      ...cfg.modelProfiles,
+      { id: 'kimi', label: 'Kimi', kind: 'openai', baseUrl: 'https://api.moonshot.ai/v1', apiKey: 'sk-secret', model: 'kimi-k2' },
+    ]
+    saveConfig(cfg, path)
+    const app = buildApp({ configPath: path })
+
+    const got = (await app.inject({ method: 'GET', url: '/api/config' })).json()
+    const kimi = got.modelProfiles.find((p: any) => p.id === 'kimi')
+    expect(kimi.apiKey).toBe('***')
+
+    // PUT the masked config back with an unrelated change — the stored key must survive
+    got.diffWarnLines = 1234
+    const put = await app.inject({ method: 'PUT', url: '/api/config', payload: got })
+    expect(put.statusCode).toBe(200)
+    const stored = loadConfig(path)
+    const storedKimi = stored.modelProfiles.find((p) => p.id === 'kimi') as any
+    expect(storedKimi.apiKey).toBe('sk-secret')
+    expect(stored.diffWarnLines).toBe(1234)
+  })
+})

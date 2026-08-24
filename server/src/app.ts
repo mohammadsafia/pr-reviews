@@ -115,6 +115,9 @@ export function buildApp(
       ...c,
       bitbucketToken: c.bitbucketToken ? MASK : '',
       githubToken: c.githubToken ? MASK : '',
+      modelProfiles: c.modelProfiles.map((p) =>
+        p.kind === 'openai' ? { ...p, apiKey: p.apiKey ? MASK : '' } : p,
+      ),
     }
   })
 
@@ -124,6 +127,13 @@ export function buildApp(
       const current = cfg()
       if (incoming.bitbucketToken === MASK) incoming.bitbucketToken = current.bitbucketToken
       if (incoming.githubToken === MASK) incoming.githubToken = current.githubToken
+      if (Array.isArray(incoming.modelProfiles)) {
+        incoming.modelProfiles = incoming.modelProfiles.map((p: any) => {
+          if (p?.kind !== 'openai' || p.apiKey !== MASK) return p
+          const stored = current.modelProfiles.find((sp) => sp.id === p.id)
+          return { ...p, apiKey: stored?.kind === 'openai' ? stored.apiKey : '' }
+        })
+      }
       const parsed = ConfigSchema.safeParse(incoming)
       if (!parsed.success) {
         reply.code(400)
