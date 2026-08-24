@@ -73,6 +73,8 @@ export interface RunRecord {
   verify: boolean
   /** Review depth used for this run. Absent on runs stored before depth modes existed. */
   depth?: Depth
+  /** Model profile id this run reviewed with. Absent on runs stored before profiles existed. */
+  reviewProfile?: string
   status: RunStatus
   createdAt: string
   finishedAt?: string

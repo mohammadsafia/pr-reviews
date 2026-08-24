@@ -683,4 +683,80 @@ describe('run pipeline integration', () => {
     expect((await pollRun(app, res1.json().id)).status).toBe('completed')
     expect((await pollRun(app, res2.json().id)).status).toBe('completed')
   })
+
+  it('rejects an unknown profile id with 400', async () => {
+    const path = tempConfig()
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      agentQuery: fakeAgent([]),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], profile: 'ghost' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toContain('ghost')
+  })
+
+  it('routes review and verify to their profiles via queryFactory and stores reviewProfile', async () => {
+    const path = tempConfig()
+    const cfgObj = loadConfig(path)
+    cfgObj.modelProfiles = [
+      ...cfgObj.modelProfiles,
+      { id: 'codex', label: 'Codex', kind: 'cli', command: 'noop', args: [] },
+    ]
+    saveConfig(cfgObj, path)
+    const finding = {
+      file: 'a.txt', line: 1, severity: 'low', category: 'style',
+      summary: 's', detail: 'd', suggestion: 'x', skill: 'general',
+    }
+    const used: string[] = []
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      queryFactory: (profile) =>
+        async function* (prompt: string) {
+          used.push(profile.id)
+          if (/adversarially verifying/.test(prompt)) {
+            yield { type: 'result' as const, ok: true, text: batchVerdicts(prompt) }
+            return
+          }
+          yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+        },
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], profile: 'codex' },
+    })
+    expect(res.statusCode).toBe(202)
+    const run = await pollRun(app, res.json().id)
+    expect(run.status).toBe('completed')
+    expect(run.reviewProfile).toBe('codex')
+    expect(used).toContain('codex') // review ran on the chosen profile
+    expect(used).toContain('claude-haiku') // verify ran on the verify profile
+  })
+
+  it('falls back with a transcript note when the stored profile was deleted before the run started', async () => {
+    const path = tempConfig()
+    // config only has the claude defaults; simulate a stale reference by pointing reviewProfile at a ghost
+    const cfgObj = loadConfig(path)
+    cfgObj.reviewProfile = 'deleted-profile'
+    saveConfig(cfgObj, path)
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, '+x\n'),
+      agentQuery: fakeAgent([]),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [] },
+    })
+    const run = await pollRun(app, res.json().id)
+    expect(run.status).toBe('completed')
+    expect(run.transcript.some((e: any) => /deleted-profile.*claude-sonnet/.test(e.text))).toBe(true)
+  })
 })

@@ -13,7 +13,7 @@ import { dedupeFindings } from './review/dedup.js'
 import { commentMarker, fingerprint, parseFingerprint } from './review/fingerprint.js'
 import { countDiffLines } from './review/findings.js'
 import { groupSkills } from './review/grouping.js'
-import { profileById } from './models/profiles.js'
+import { profileById, type ModelProfile } from './models/profiles.js'
 import { queryFor } from './models/resolve.js'
 import { runReview, type AgentQuery } from './review/runner.js'
 import { verifyFindingsBatch } from './review/verify.js'
@@ -84,6 +84,7 @@ export function buildApp(
   deps: {
     configPath?: string
     agentQuery?: AgentQuery
+    queryFactory?: (profile: ModelProfile) => AgentQuery
     clientFactory?: (pr: PrRef, cfg: Config) => PrProviderClient
   } = {},
 ): FastifyInstance {
@@ -99,6 +100,7 @@ export function buildApp(
 
   const configPath = deps.configPath ?? DEFAULT_CONFIG_PATH
   const agentQuery = deps.agentQuery
+  const queryFactory = deps.queryFactory ?? queryFor
   const clientFactory = deps.clientFactory ?? makeClient
   const app = Fastify()
   const events = new EventEmitter()
@@ -215,6 +217,7 @@ export function buildApp(
       force?: boolean
       verify?: boolean
       depth?: Depth
+      profile?: string
     }
     const c = cfg()
     let pr: PrRef
@@ -245,6 +248,10 @@ export function buildApp(
       return reply.code(400).send({ error: `Invalid depth: ${String(body.depth)}` })
     }
     const depth: Depth = body.depth ?? c.defaultDepth
+    if (body.profile !== undefined && !c.modelProfiles.some((p) => p.id === body.profile)) {
+      return reply.code(400).send({ error: `Unknown model profile: ${body.profile}` })
+    }
+    const reviewProfileId = body.profile ?? c.reviewProfile
     const run = store().create({
       pr,
       prTitle: meta.title,
@@ -252,6 +259,7 @@ export function buildApp(
       focus: body.focus,
       verify: body.verify !== false,
       depth,
+      reviewProfile: reviewProfileId,
       status: 'queued',
     })
     runQueue.push(() => executeRun(run.id, { pr, meta, diff, depth, body }))
@@ -296,8 +304,17 @@ export function buildApp(
       // Throws → the outer catch fails the run: never review without a fresh context pack.
       writeContextPack(cwd, ctx.meta, ctx.diff)
       emit({ kind: 'status', text: 'Starting review agent…', at: new Date().toISOString() })
-      const reviewQuery = agentQuery ?? queryFor(profileById(c, c.reviewProfile))
-      const verifyQuery = agentQuery ?? queryFor(profileById(c, c.verifyProfile))
+      const requestedId = run.reviewProfile
+      const reviewProfile = profileById(c, requestedId)
+      if (requestedId !== undefined && reviewProfile.id !== requestedId) {
+        emit({
+          kind: 'status',
+          text: `Model profile "${requestedId}" no longer exists — using "${reviewProfile.id}" instead.`,
+          at: new Date().toISOString(),
+        })
+      }
+      const reviewQuery = agentQuery ?? queryFactory(reviewProfile)
+      const verifyQuery = agentQuery ?? queryFactory(profileById(c, c.verifyProfile))
       const all = scanSkillDirs(c.skillDirs)
       const selected = all
         .filter((sk) => ctx.body.skills.includes(sk.name))
