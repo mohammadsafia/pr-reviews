@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { ReviewerPrPicker } from '@/components/ReviewerPrPicker'
 import { SkillPicker } from '@/components/SkillPicker'
 import { cn } from '@/lib/utils'
 
@@ -67,6 +68,7 @@ export function NewReview() {
   const [error, setError] = useState('')
   const [results, setResults] = useState<BatchOutcome[]>([])
   const [busy, setBusy] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
 
   useEffect(() => {
     getSkills()
@@ -176,11 +178,22 @@ export function NewReview() {
         <p className="text-muted-foreground mt-1 text-sm">Paste PR links, pick skills, configure the run.</p>
       </div>
 
+      <ReviewerPrPicker
+        open={browsing}
+        onOpenChange={setBrowsing}
+        onAdd={(picked) => setUrl((cur) => [...parsePrUrlLines(cur), ...picked].join('\n'))}
+      />
+
       <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
         {/* LEFT: what to review */}
         <div className="flex min-w-0 flex-col gap-6">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="pr-urls">Pull request URLs</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pr-urls">Pull request URLs</Label>
+              <Button type="button" variant="ghost-primary" size="xs" onClick={() => setBrowsing(true)}>
+                Browse PRs awaiting your review
+              </Button>
+            </div>
             <Textarea
               id="pr-urls"
               className="font-family-mono min-h-24 text-sm"

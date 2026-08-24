@@ -15,6 +15,18 @@ export interface PrRef {
   id: number
 }
 
+/** An open PR where the configured user is a requested reviewer, as listed by a provider. */
+export interface ReviewerPr {
+  provider: 'bitbucket' | 'github'
+  workspace: string
+  repo: string
+  id: number
+  title: string
+  author: string
+  updatedAt: string
+  url: string
+}
+
 export type Severity = 'high' | 'medium' | 'low' | 'info'
 
 export interface Finding {
@@ -89,6 +101,7 @@ export interface SkillInfo {
 export interface Config {
   bitbucketEmail: string
   bitbucketToken: string
+  bitbucketWorkspace: string
   githubToken: string
   cloneProtocol: 'ssh' | 'https'
   skillDirs: string[]

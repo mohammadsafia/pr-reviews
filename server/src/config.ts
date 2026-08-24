@@ -9,6 +9,7 @@ const home = homedir()
 export const ConfigSchema = z.object({
   bitbucketEmail: z.string().default(''),
   bitbucketToken: z.string().default(''),
+  bitbucketWorkspace: z.string().default(''),
   githubToken: z.string().default(''),
   cloneProtocol: z.enum(['ssh', 'https']).default('ssh'),
   skillDirs: z

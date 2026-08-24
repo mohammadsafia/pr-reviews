@@ -122,6 +122,18 @@ export function Settings() {
             <p className="text-muted-foreground text-xs">*** means your saved token is kept</p>
           </div>
           <div className="flex flex-col gap-2">
+            <Label htmlFor="bb-workspace">Workspace</Label>
+            <Input
+              id="bb-workspace"
+              placeholder="e.g. appswaveio"
+              value={cfg.bitbucketWorkspace}
+              onChange={(e) => set({ bitbucketWorkspace: e.target.value })}
+            />
+            <p className="text-muted-foreground text-xs">
+              Used to find PRs awaiting your review — the workspace's most recently active repos are scanned.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
             <Label>Clone protocol</Label>
             <div className="flex gap-2">
               <Button

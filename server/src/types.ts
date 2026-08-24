@@ -31,6 +31,18 @@ export interface PrProviderClient {
   cloneUrl(pr: PrRef, protocol?: 'ssh' | 'https'): string
 }
 
+/** An open PR where the configured user is a requested reviewer, as listed by a provider. */
+export interface ReviewerPr {
+  provider: Provider
+  workspace: string
+  repo: string
+  id: number
+  title: string
+  author: string
+  updatedAt: string
+  url: string
+}
+
 export type Severity = 'high' | 'medium' | 'low' | 'info'
 
 export interface Finding {

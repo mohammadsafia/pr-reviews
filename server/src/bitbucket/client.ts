@@ -1,5 +1,5 @@
 import { PrAuthError } from '../providers/errors.js'
-import type { ExistingComment, PrMeta, PrProviderClient, PrRef } from '../types.js'
+import type { ExistingComment, PrMeta, PrProviderClient, PrRef, ReviewerPr } from '../types.js'
 
 const API = 'https://api.bitbucket.org/2.0'
 
@@ -93,5 +93,56 @@ export class BitbucketClient implements PrProviderClient {
   cloneUrl(pr: PrRef, protocol: 'ssh' | 'https' = 'ssh'): string {
     if (protocol === 'ssh') return `git@bitbucket.org:${pr.workspace}/${pr.repo}.git`
     return `https://${encodeURIComponent(this.email)}:${encodeURIComponent(this.token)}@bitbucket.org/${pr.workspace}/${pr.repo}.git`
+  }
+
+  /** Open PRs across a workspace where the authenticated user is a requested reviewer.
+   * Bitbucket Cloud has no cross-repo reviewer query, so this scans the workspace's most
+   * recently active repos (first 100, sorted by -updated_on) and filters each repo's open
+   * PRs by reviewers.uuid — per-repo queries run concurrently, capped at 10 in flight. */
+  async listReviewerPrs(workspace: string): Promise<ReviewerPr[]> {
+    const me = (await (await this.request(`${API}/user`)).json()) as any
+    const uuid: string = me.uuid
+
+    const repos: string[] = []
+    // one page = the 100 most recently active repos; older idle repos are deliberately skipped
+    const page = (await (
+      await this.request(
+        `${API}/repositories/${encodeURIComponent(workspace)}?sort=-updated_on&pagelen=100&fields=values.slug`,
+      )
+    ).json()) as any
+    for (const r of page.values ?? []) repos.push(r.slug)
+
+    const q = encodeURIComponent(`state="OPEN" AND reviewers.uuid="${uuid}"`)
+    const out: ReviewerPr[] = []
+    const CONCURRENCY = 10
+    let next = 0
+    const worker = async (): Promise<void> => {
+      while (next < repos.length) {
+        const slug = repos[next++]
+        try {
+          const prs = (await (
+            await this.request(
+              `${API}/repositories/${encodeURIComponent(workspace)}/${slug}/pullrequests?q=${q}&pagelen=50&fields=values.id,values.title,values.author.display_name,values.updated_on,values.links.html.href`,
+            )
+          ).json()) as any
+          for (const p of prs.values ?? []) {
+            out.push({
+              provider: 'bitbucket',
+              workspace,
+              repo: slug,
+              id: p.id,
+              title: p.title ?? '',
+              author: p.author?.display_name ?? '',
+              updatedAt: p.updated_on ?? '',
+              url: p.links?.html?.href ?? `https://bitbucket.org/${workspace}/${slug}/pull-requests/${p.id}`,
+            })
+          }
+        } catch {
+          // one unreadable repo (permissions, transient error) must not sink the whole scan
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, repos.length) }, worker))
+    return out
   }
 }

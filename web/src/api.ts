@@ -1,4 +1,4 @@
-import type { AutoSubmit, Config, RunEvent, RunRecord, SkillInfo } from './types.js'
+import type { AutoSubmit, Config, ReviewerPr, RunEvent, RunRecord, SkillInfo } from './types.js'
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(((await res.json()) as any).error ?? `HTTP ${res.status}`)
@@ -14,6 +14,13 @@ export const putConfig = (c: Config) =>
   }).then((r) => json<{ ok: boolean }>(r).then(() => undefined))
 
 export const getSkills = () => fetch('/api/skills').then((r) => json<SkillInfo[]>(r))
+
+export interface ReviewerPrsResult {
+  prs: ReviewerPr[]
+  errors: { provider: 'bitbucket' | 'github'; message: string }[]
+}
+
+export const getReviewerPrs = () => fetch('/api/reviewer-prs').then((r) => json<ReviewerPrsResult>(r))
 export const listRuns = () => fetch('/api/runs').then((r) => json<RunRecord[]>(r))
 export const getRun = (id: string) => fetch(`/api/runs/${id}`).then((r) => json<RunRecord>(r))
 

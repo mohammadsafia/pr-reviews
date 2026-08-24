@@ -1,5 +1,5 @@
 import { PrAuthError } from '../providers/errors.js'
-import type { ExistingComment, PrMeta, PrProviderClient, PrRef } from '../types.js'
+import type { ExistingComment, PrMeta, PrProviderClient, PrRef, ReviewerPr } from '../types.js'
 
 const API = 'https://api.github.com'
 
@@ -123,5 +123,33 @@ export class GitHubClient implements PrProviderClient {
   cloneUrl(pr: PrRef, protocol: 'ssh' | 'https' = 'ssh'): string {
     if (protocol === 'ssh') return `git@github.com:${pr.workspace}/${pr.repo}.git`
     return `https://x-access-token:${this.token}@github.com/${pr.workspace}/${pr.repo}.git`
+  }
+
+  /** Open PRs where the authenticated user is a requested reviewer — one global search
+   * call (`review-requested:@me` resolves against the token's user). */
+  async listReviewerPrs(): Promise<ReviewerPr[]> {
+    const q = encodeURIComponent('is:pr is:open review-requested:@me')
+    const data = (await (
+      await this.request(`${API}/search/issues?q=${q}&per_page=50&sort=updated`)
+    ).json()) as any
+    const out: ReviewerPr[] = []
+    for (const item of data.items ?? []) {
+      // repository_url: https://api.github.com/repos/{owner}/{repo}
+      const parts = String(item.repository_url ?? '').split('/')
+      const repo = parts.pop() ?? ''
+      const owner = parts.pop() ?? ''
+      if (!owner || !repo) continue
+      out.push({
+        provider: 'github',
+        workspace: owner,
+        repo,
+        id: item.number,
+        title: item.title ?? '',
+        author: item.user?.login ?? '',
+        updatedAt: item.updated_at ?? '',
+        url: item.html_url ?? `https://github.com/${owner}/${repo}/pull/${item.number}`,
+      })
+    }
+    return out
   }
 }
