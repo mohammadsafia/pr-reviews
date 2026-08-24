@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tabs } from '@/components/ui/tabs'
 import { FindingCard } from '@/components/FindingCard'
 import { failedSkillNames, runHasLoginExpiry } from '@/lib/runErrors'
 import { ReviewConsole } from '@/components/ReviewConsole'
@@ -140,9 +143,9 @@ export function RunView() {
   const [live, setLive] = useState<RunEvent[]>([])
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [confirming, setConfirming] = useState(false)
-  const [postMessage, setPostMessage] = useState<string | null>(null)
   const [loadError, setLoadError] = useState('')
   const [preview, setPreview] = useState<PostPreview | null>(null)
+  const [tab, setTab] = useState<'findings' | 'console'>('findings')
 
   useEffect(() => {
     let cancelled = false
@@ -153,6 +156,7 @@ export function RunView() {
         setRun(r)
         setLive(r.transcript)
         if (r.status === 'running' || r.status === 'queued') {
+          setTab('console')
           unsub = subscribeRun(
             id,
             (e) => {
@@ -161,7 +165,15 @@ export function RunView() {
             () => {
               if (!cancelled) {
                 getRun(id)
-                  .then((r2) => !cancelled && setRun(r2))
+                  .then((r2) => {
+                    if (cancelled) return
+                    setRun(r2)
+                    if (r2.status === 'completed') {
+                      setTab('findings')
+                      const n = r2.findings.length
+                      toast.success(`Review complete — ${n} finding${n === 1 ? '' : 's'}`)
+                    }
+                  })
                   .catch(() => {
                     // The run already finished server-side (that's why onDone fired); a
                     // transient refetch failure shouldn't blow away the page the user is
@@ -201,13 +213,13 @@ export function RunView() {
 
   if (loadError) {
     return (
-      <main>
+      <div>
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <Alert.Title>Couldn't load run</Alert.Title>
           <Alert.Description>{loadError}</Alert.Description>
         </Alert>
-      </main>
+      </div>
     )
   }
   if (!run) return <p className="text-muted-foreground text-sm">Loading…</p>
@@ -221,14 +233,16 @@ export function RunView() {
     setChecked(next)
   }
 
+  function prUrl(r: RunRecord): string {
+    return r.pr.provider === 'github'
+      ? `https://github.com/${r.pr.workspace}/${r.pr.repo}/pull/${r.pr.id}`
+      : `https://bitbucket.org/${r.pr.workspace}/${r.pr.repo}/pull-requests/${r.pr.id}`
+  }
+
   async function retry() {
     if (!run) return
-    const url =
-      run.pr.provider === 'github'
-        ? `https://github.com/${run.pr.workspace}/${run.pr.repo}/pull/${run.pr.id}`
-        : `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`
     const res = await createRun({
-      url,
+      url: prUrl(run),
       skills: run.skills,
       focus: run.focus,
       verify: run.verify,
@@ -241,15 +255,11 @@ export function RunView() {
 
   async function retryFailedSkills() {
     if (!run) return
-    const failed = failedSkillNames(run)
-    if (failed.length === 0) return
-    const url =
-      run.pr.provider === 'github'
-        ? `https://github.com/${run.pr.workspace}/${run.pr.repo}/pull/${run.pr.id}`
-        : `https://bitbucket.org/${run.pr.workspace}/${run.pr.repo}/pull-requests/${run.pr.id}`
+    const failedNames = failedSkillNames(run)
+    if (failedNames.length === 0) return
     const res = await createRun({
-      url,
-      skills: failed,
+      url: prUrl(run),
+      skills: failedNames,
       focus: run.focus,
       verify: run.verify,
       depth: run.depth,
@@ -270,10 +280,11 @@ export function RunView() {
     try {
       const result = await postComments(id, sentIndexes)
       const { message, remainingChecked } = applyPostResult(sentIndexes, result, checked)
-      setPostMessage(message)
+      if (result.failed.length > 0) toast.error(message)
+      else toast.success(message)
       setChecked(remainingChecked)
     } catch (err: any) {
-      setPostMessage(err?.message ?? 'Failed to post comments')
+      toast.error(err?.message ?? 'Failed to post comments')
     } finally {
       setConfirming(false)
     }
@@ -287,37 +298,51 @@ export function RunView() {
   const { confirmed, unverified } = partitionFindingsByVerdict(run.findings)
 
   return (
-    <main className="flex flex-col gap-8 pb-8">
-      <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="font-family-display text-2xl">{run.prTitle}</h1>
-          <StatusBadge status={run.status} />
-          {run.depth && (
-            <Badge variant="muted" size="xs" className="capitalize">
-              {run.depth}
-            </Badge>
-          )}
+    <div className="flex flex-col gap-6 pb-24">
+      {/* Header */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <h1 className="truncate text-2xl font-semibold tracking-tight">{run.prTitle}</h1>
+            <StatusBadge status={run.status} />
+          </div>
+          <div className="flex shrink-0 gap-2">
+            {run.status === 'failed' && (
+              <Button variant="secondary" size="sm" onClick={retry}>
+                Retry run
+              </Button>
+            )}
+            {failed.length > 0 && (run.status === 'completed' || run.status === 'failed') && (
+              <Button variant="secondary" size="sm" onClick={retryFailedSkills}>
+                Retry failed skills ({failed.length})
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant="muted" size="xs" className="font-family-mono">
+            {run.pr.workspace}/{run.pr.repo}#{run.pr.id}
+          </Badge>
           {run.reviewProfile && (
             <Badge variant="muted" size="xs">
               {run.reviewProfile}
             </Badge>
           )}
+          {run.depth && (
+            <Badge variant="muted" size="xs" className="capitalize">
+              {run.depth}
+            </Badge>
+          )}
+          <Badge variant={run.verify ? 'accent' : 'muted'} size="xs">
+            {run.verify ? 'verified' : 'unverified run'}
+          </Badge>
+          {run.skills.map((s) => (
+            <Badge key={s} variant="muted" size="xs">
+              {s}
+            </Badge>
+          ))}
         </div>
-        <p className="text-muted-foreground font-family-mono text-sm">
-          {run.pr.workspace}/{run.pr.repo}#{run.pr.id}
-        </p>
-        {run.skills.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {run.skills.map((s) => (
-              <Badge key={s} variant="muted" size="xs">
-                {s}
-              </Badge>
-            ))}
-          </div>
-        )}
       </div>
-
-      <ReviewConsole events={live} running={active} startedAt={run.createdAt} finishedAt={run.finishedAt} />
 
       {runHasLoginExpiry(run) && (
         <Alert variant="warning">
@@ -330,142 +355,121 @@ export function RunView() {
         </Alert>
       )}
 
-      {run.status === 'completed' && failed.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground text-sm">
-            {failed.length} skill{failed.length === 1 ? '' : 's'} failed on this run.
-          </span>
-          <Button variant="secondary" size="sm" className="w-fit" onClick={retryFailedSkills}>
-            Retry failed skills ({failed.length})
-          </Button>
-        </div>
-      )}
-
-      {run.skillResults.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <h2 className="text-muted-foreground text-sm font-medium">Skill runs</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {run.skillResults.map((r) => (
-              <div key={r.skill} className="flex items-center gap-1.5">
-                <Badge
-                  variant={r.status === 'completed' ? 'success' : 'destructive'}
-                  size="xs"
-                  title={r.status === 'failed' ? r.error : undefined}
-                >
-                  {r.skill} · {r.findingCount}
-                </Badge>
-                {r.status === 'failed' && r.error && (
-                  <span className="text-muted-foreground max-w-64 truncate text-xs" title={r.error}>
-                    {r.error}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {run.autoSubmitResult && (
-        <p className="text-muted-foreground text-sm">
-          {run.autoSubmitResult.dedupeChecked
-            ? `Auto-posted ${run.autoSubmitResult.posted} comment${run.autoSubmitResult.posted === 1 ? '' : 's'}` +
-              (run.autoSubmitResult.skipped > 0 ? ` · ${run.autoSubmitResult.skipped} skipped` : '') +
-              (run.autoSubmitResult.failed > 0 ? ` · ${run.autoSubmitResult.failed} failed` : '')
-            : 'Auto-post skipped — existing comments could not be checked.'}
-        </p>
-      )}
-
-      {run.status === 'completed' &&
-        (run.verify ? (
-          <p className="text-muted-foreground text-sm">
-            {run.findings.length} findings ·{' '}
-            {run.findings.filter((f) => f.verdict === 'confirmed').length} confirmed ·{' '}
-            {run.findings.filter((f) => f.verdict === 'unverified').length} unverified
-          </p>
-        ) : (
-          <p className="text-muted-foreground text-sm">{run.findings.length} findings · verification skipped</p>
-        ))}
-
       {run.status === 'failed' && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <Alert.Title>Run failed</Alert.Title>
-          <Alert.Description className="flex flex-col gap-2">
-            <span>{run.error}</span>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" className="w-fit" onClick={retry}>
-                Retry run
-              </Button>
-              {failed.length > 0 && (
-                <Button variant="secondary" size="sm" className="w-fit" onClick={retryFailedSkills}>
-                  Retry failed skills ({failed.length})
-                </Button>
-              )}
-            </div>
-          </Alert.Description>
+          <Alert.Description>{run.error}</Alert.Description>
         </Alert>
       )}
 
-      {run.status === 'completed' && (
-        <div className="flex flex-col gap-6">
-          <div className="flex items-baseline gap-2">
-            <h2 className="font-family-display text-xl">Findings</h2>
-            <span className="text-muted-foreground text-sm">({run.findings.length})</span>
-          </div>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'findings' | 'console')}>
+        <Tabs.List>
+          <Tabs.Trigger value="findings">
+            Findings{run.status === 'completed' ? ` (${run.findings.length})` : ''}
+          </Tabs.Trigger>
+          <Tabs.Trigger value="console">Console</Tabs.Trigger>
+        </Tabs.List>
 
-          {run.findings.length === 0 ? (
-            <Alert variant="success">
-              <CheckCircle2 className="h-4 w-4" />
-              <Alert.Description>Nothing to flag. The agent reviewed this PR clean.</Alert.Description>
-            </Alert>
-          ) : (
-            // Partition confirmed vs unverified FIRST, then group each partition by severity
-            // — so every confirmed finding renders above every unverified one, honoring
-            // "unverified sorts below confirmed" regardless of severity.
-            [
-              { findings: confirmed.map((x) => x.finding), indexes: confirmed.map((x) => x.index) },
-              { findings: unverified.map((x) => x.finding), indexes: unverified.map((x) => x.index) },
-            ].map(({ findings, indexes }, partition) =>
-              groupFindingsBySeverity(findings).map((g) => (
-                <div key={`${partition}-${g.severity}`} className="flex flex-col gap-3">
-                  <Badge variant={SEVERITY_VARIANT[g.severity]} size="sm" className="w-fit capitalize">
-                    {g.severity}
-                    {partition === 1 ? ' · unverified' : ''}
-                  </Badge>
-                  <div className="flex flex-col gap-3">
-                    {g.items.map(({ finding, index: localIndex }) => {
-                      const index = indexes[localIndex]
-                      return (
-                        <FindingCard
-                          key={index}
-                          finding={finding}
-                          index={index}
-                          checked={checked.has(index)}
-                          onToggle={toggleFinding}
-                        />
-                      )
-                    })}
+        <Tabs.Content value="findings">
+          <div className="flex flex-col gap-5">
+            {run.skillResults.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {run.skillResults.map((r) => (
+                  <div key={r.skill} className="flex items-center gap-1.5">
+                    <Badge
+                      variant={r.status === 'completed' ? 'success' : 'destructive'}
+                      size="xs"
+                      title={r.status === 'failed' ? r.error : undefined}
+                    >
+                      {r.skill} · {r.findingCount}
+                    </Badge>
+                    {r.status === 'failed' && r.error && (
+                      <span className="text-muted-foreground max-w-64 truncate text-xs" title={r.error}>
+                        {r.error}
+                      </span>
+                    )}
                   </div>
-                </div>
-              )),
-            )
-          )}
+                ))}
+              </div>
+            )}
 
-          {postMessage && <p className="text-success text-sm">{postMessage}</p>}
-        </div>
-      )}
+            {run.autoSubmitResult && (
+              <p className="text-muted-foreground text-sm">
+                {run.autoSubmitResult.dedupeChecked
+                  ? `Auto-posted ${run.autoSubmitResult.posted} comment${run.autoSubmitResult.posted === 1 ? '' : 's'}` +
+                    (run.autoSubmitResult.skipped > 0 ? ` · ${run.autoSubmitResult.skipped} skipped` : '') +
+                    (run.autoSubmitResult.failed > 0 ? ` · ${run.autoSubmitResult.failed} failed` : '')
+                  : 'Auto-post skipped — existing comments could not be checked.'}
+              </p>
+            )}
+
+            {run.status === 'completed' && run.verify && (
+              <p className="text-muted-foreground text-sm">
+                {run.findings.filter((f) => f.verdict === 'confirmed').length} confirmed ·{' '}
+                {run.findings.filter((f) => f.verdict === 'unverified').length} unverified
+              </p>
+            )}
+
+            {run.status === 'completed' && run.findings.length === 0 ? (
+              <Alert variant="success">
+                <CheckCircle2 className="h-4 w-4" />
+                <Alert.Description>Nothing to flag. The agent reviewed this PR clean.</Alert.Description>
+              </Alert>
+            ) : active ? (
+              <p className="text-muted-foreground text-sm">Review in progress — findings appear when the run completes.</p>
+            ) : (
+              // Partition confirmed vs unverified FIRST, then group each partition by severity
+              // — so every confirmed finding renders above every unverified one.
+              [
+                { findings: confirmed.map((x) => x.finding), indexes: confirmed.map((x) => x.index) },
+                { findings: unverified.map((x) => x.finding), indexes: unverified.map((x) => x.index) },
+              ].map(({ findings, indexes }, partition) =>
+                groupFindingsBySeverity(findings).map((g) => (
+                  <div key={`${partition}-${g.severity}`} className="flex flex-col gap-3">
+                    <Badge variant={SEVERITY_VARIANT[g.severity]} size="sm" className="w-fit capitalize">
+                      {g.severity}
+                      {partition === 1 ? ' · unverified' : ''}
+                    </Badge>
+                    <div className="flex flex-col gap-3">
+                      {g.items.map(({ finding, index: localIndex }) => {
+                        const index = indexes[localIndex]
+                        return (
+                          <FindingCard
+                            key={index}
+                            finding={finding}
+                            index={index}
+                            checked={checked.has(index)}
+                            onToggle={toggleFinding}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )),
+              )
+            )}
+          </div>
+        </Tabs.Content>
+
+        <Tabs.Content value="console">
+          <ReviewConsole events={live} running={active} startedAt={run.createdAt} finishedAt={run.finishedAt} />
+        </Tabs.Content>
+      </Tabs>
 
       {checked.size > 0 && (
-        <div className="bg-background border-muted-200 sticky bottom-0 z-40 -mx-6 flex items-center justify-between gap-4 border-t px-6 py-4 shadow-deep sm:-mx-10 sm:px-10">
+        <div className="animate-in slide-in-from-bottom-4 border-border bg-popover fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-full border py-2 pr-2 pl-5 shadow-deep">
           <span className="text-sm font-medium">{checked.size} selected</span>
-          <Button onClick={() => setConfirming(true)}>Post to Bitbucket…</Button>
+          <Button size="sm" className="rounded-full" onClick={() => setConfirming(true)}>
+            Post to PR…
+          </Button>
         </div>
       )}
 
       <Dialog open={confirming} onOpenChange={setConfirming}>
         <Dialog.Panel>
           <Dialog.Header>
-            <Dialog.Title>Post {newCount} comments to Bitbucket?</Dialog.Title>
+            <Dialog.Title>Post {newCount} comments?</Dialog.Title>
             <Dialog.Description>These comments will be created on the pull request.</Dialog.Description>
           </Dialog.Header>
           <Dialog.Content>
@@ -474,34 +478,36 @@ export function RunView() {
                 Couldn't check the PR for existing comments — nothing will be de-duplicated.
               </p>
             )}
-            <ul className="flex max-h-96 flex-col gap-4 overflow-y-auto">
-              {selectedItems.map(({ finding, index }) => {
-                const status = statusForIndex(preview, index)
-                return (
-                  <li
-                    key={index}
-                    className="border-muted-200 flex flex-col gap-2 border-b pb-4 text-sm last:border-0 last:pb-0"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="bg-code-surface text-code-foreground font-family-mono w-fit rounded px-1.5 py-0.5 text-xs">
-                        {finding.file}:{finding.line}
-                      </span>
-                      {status === 'already-posted' && (
-                        <Badge variant="muted" size="xs">
-                          already posted
-                        </Badge>
-                      )}
-                      {status === 'resolved' && (
-                        <Badge variant="muted" size="xs">
-                          resolved
-                        </Badge>
-                      )}
-                    </div>
-                    <pre className="font-family-sans whitespace-pre-wrap text-sm">{formatCommentBody(finding)}</pre>
-                  </li>
-                )
-              })}
-            </ul>
+            <ScrollArea className="max-h-96">
+              <ul className="flex flex-col gap-4">
+                {selectedItems.map(({ finding, index }) => {
+                  const status = statusForIndex(preview, index)
+                  return (
+                    <li
+                      key={index}
+                      className="border-border flex flex-col gap-2 border-b pb-4 text-sm last:border-0 last:pb-0"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="bg-code-surface text-code-foreground font-family-mono w-fit rounded px-1.5 py-0.5 text-xs">
+                          {finding.file}:{finding.line}
+                        </span>
+                        {status === 'already-posted' && (
+                          <Badge variant="muted" size="xs">
+                            already posted
+                          </Badge>
+                        )}
+                        {status === 'resolved' && (
+                          <Badge variant="muted" size="xs">
+                            resolved
+                          </Badge>
+                        )}
+                      </div>
+                      <pre className="font-family-sans whitespace-pre-wrap text-sm">{formatCommentBody(finding)}</pre>
+                    </li>
+                  )
+                })}
+              </ul>
+            </ScrollArea>
           </Dialog.Content>
           <Dialog.Footer className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setConfirming(false)}>
@@ -513,6 +519,6 @@ export function RunView() {
           </Dialog.Footer>
         </Dialog.Panel>
       </Dialog>
-    </main>
+    </div>
   )
 }

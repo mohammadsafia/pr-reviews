@@ -31,6 +31,8 @@ function ConsoleBody({ events, running }: { events: RunEvent[]; running: boolean
   const feedRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    // pause auto-scroll while the user is reading (hovering) the feed
+    if (feedRef.current?.matches(':hover')) return
     feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight })
   }, [events])
 
@@ -45,7 +47,14 @@ function ConsoleBody({ events, running }: { events: RunEvent[]; running: boolean
             <span className="text-code-muted shrink-0 select-none">[{e.skill}]</span>
           )}
           <span className={cn('w-4 shrink-0 select-none text-center', GLYPH_CLASS[e.kind])}>{GLYPH[e.kind]}</span>
-          <span className="text-code-foreground min-w-0 flex-1 whitespace-pre-wrap break-words">{e.text}</span>
+          <span
+            className={cn(
+              'min-w-0 flex-1 whitespace-pre-wrap break-words',
+              e.kind === 'tool' ? 'text-code-muted/70' : 'text-code-foreground',
+            )}
+          >
+            {e.text}
+          </span>
         </div>
       ))}
       {running && (
