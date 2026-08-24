@@ -422,7 +422,7 @@ Rewrite the comments route body (replace the current `posted`/`failed` loop). Th
         continue
       }
       const text =
-        `**[AI review — ${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}` +
+        `**[${f.severity}/${f.category} · ${f.skills.join(', ')}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}` +
         `\n\n${commentMarker(fp)}`
       try {
         const commentId = await client.postInlineComment(run.pr, { path: f.file, line: f.line, text })

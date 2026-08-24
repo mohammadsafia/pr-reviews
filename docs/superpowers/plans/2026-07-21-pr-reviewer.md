@@ -1684,7 +1684,7 @@ export function buildApp(deps: { configPath?: string; agentQuery?: AgentQuery } 
     for (const i of findingIndexes) {
       const f = run.findings[i]
       if (!f) continue
-      const text = `**[AI review — ${f.severity}/${f.category}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
+      const text = `**[${f.severity}/${f.category}]** ${f.summary}\n\n${f.detail}\n\n**Suggestion:** ${f.suggestion}`
       posted.push(await client.postInlineComment(run.pr, { path: f.file, line: f.line, text }))
     }
     run.postedCommentIds.push(...posted)

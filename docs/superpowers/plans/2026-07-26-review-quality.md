@@ -173,7 +173,7 @@ Then in `readRun`, change the parse line:
       for (const f of findings) f.skills = [unit.name]
 ```
 
-And the comment text in the comments route (currently uses `f.category`, no skill — leave category, but if any code reads `f.skill` it must move to `f.skills`). Search the file: the comment text line is `**[AI review — ${f.severity}/${f.category}]** ...` and does not use skill, so no change there. Confirm `grep -n "\.skill\b" server/src/app.ts` returns nothing after this step.
+And the comment text in the comments route (currently uses `f.category`, no skill — leave category, but if any code reads `f.skill` it must move to `f.skills`). Search the file: the comment text line is `**[${f.severity}/${f.category}]** ...` and does not use skill, so no change there. Confirm `grep -n "\.skill\b" server/src/app.ts` returns nothing after this step.
 
 - [ ] **Step 7: Run tests + typecheck**
 
