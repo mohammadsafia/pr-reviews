@@ -6,7 +6,11 @@ import { cn } from '@/lib/utils'
 
 const ScrollArea: FC<ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>> = ({ className, children, ...props }) => (
   <ScrollAreaPrimitive.Root data-slot="scroll-area" className={cn('relative overflow-hidden', className)} {...props}>
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">{children}</ScrollAreaPrimitive.Viewport>
+    {/* max-h-[inherit] passes a max-h-* cap set on the Root down to the viewport — without
+        it Radix's viewport never constrains, so the content clips instead of scrolling */}
+    <ScrollAreaPrimitive.Viewport className="h-full max-h-[inherit] w-full rounded-[inherit]">
+      {children}
+    </ScrollAreaPrimitive.Viewport>
     <ScrollAreaPrimitive.Scrollbar
       orientation="vertical"
       className="flex w-2 touch-none p-0.5 select-none"

@@ -86,7 +86,10 @@ export function SkillPicker({
                 <label
                   key={s.dir}
                   title={s.description}
-                  className="hover:bg-primary/5 flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors"
+                  className={cn(
+                    'flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors',
+                    selected.has(s.name) ? 'bg-primary/10' : 'hover:bg-primary/5',
+                  )}
                 >
                   <Checkbox checked={selected.has(s.name)} onCheckedChange={() => onToggle(s.name)} className="shrink-0" />
                   <span className="min-w-0 flex-1">
