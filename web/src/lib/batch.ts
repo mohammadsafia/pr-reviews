@@ -1,4 +1,5 @@
 import type { createRun } from '../api.js'
+import type { AutoSubmit } from '../types.js'
 
 export type BatchOutcome =
   | { url: string; kind: 'started'; id: string }
@@ -16,6 +17,7 @@ export async function submitBatch(
     verify: boolean
     depth?: 'thorough' | 'balanced' | 'economy'
     profile?: string
+    autoSubmit?: AutoSubmit
     force?: boolean
   },
   createRunFn: typeof createRun,

@@ -27,8 +27,15 @@ describe('submitBatch', () => {
       seen.push(input)
       return { id: 'x', status: 202 }
     }
-    await submitBatch(['u1'], { ...opts, force: true, profile: 'codex' }, fake as any)
-    expect(seen[0]).toEqual({ url: 'u1', skills: ['a'], verify: true, depth: 'balanced', force: true, profile: 'codex' })
+    await submitBatch(
+      ['u1'],
+      { ...opts, force: true, profile: 'codex', autoSubmit: { threshold: 'medium', confirmedOnly: true } },
+      fake as any,
+    )
+    expect(seen[0]).toEqual({
+      url: 'u1', skills: ['a'], verify: true, depth: 'balanced', force: true, profile: 'codex',
+      autoSubmit: { threshold: 'medium', confirmedOnly: true },
+    })
   })
 
   it('defaults a missing error message', async () => {

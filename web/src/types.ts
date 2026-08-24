@@ -1,3 +1,8 @@
+export interface AutoSubmit {
+  threshold: 'high' | 'medium' | 'all'
+  confirmedOnly: boolean
+}
+
 export type ModelProfile =
   | { id: string; label: string; kind: 'claude'; model: string }
   | { id: string; label: string; kind: 'cli'; command: string; args: string[]; timeoutMs?: number }
@@ -59,6 +64,10 @@ export interface RunRecord {
   depth?: 'thorough' | 'balanced' | 'economy'
   /** Model profile id this run reviewed with. Absent on runs stored before profiles existed. */
   reviewProfile?: string
+  /** Auto-post options for this run; absent = off. */
+  autoSubmit?: AutoSubmit
+  /** Outcome of the auto-post step, set only when autoSubmit ran. */
+  autoSubmitResult?: { posted: number; skipped: number; failed: number; dedupeChecked: boolean }
   status: RunStatus
   createdAt: string
   finishedAt?: string

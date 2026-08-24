@@ -6,7 +6,7 @@ A personal local GUI tool for reviewing Bitbucket Cloud pull requests with Claud
 
 - **Node.js** 20 or higher
 - **git** (for repository cloning and operations)
-- **Claude Code login** OR `ANTHROPIC_API_KEY` environment variable (for Claude API access)
+- **Claude Code login** OR `ANTHROPIC_API_KEY` environment variable — or any other configured model profile (see Model Profiles below)
 - **Bitbucket API token** with scopes: `pullrequest:read`, `pullrequest:write`, `repository:read`
 - **SSH key configured for bitbucket.org** (default clone method; HTTPS with API token selectable in Settings)
 
@@ -36,6 +36,20 @@ Each review run deduplicates findings across selected skills — when multiple s
 ### Review Depth & Cost
 
 The New Review screen offers three review depths controlling how selected skills are grouped into agent sessions: **Thorough** (one skill per session — highest quality, highest cost), **Balanced** (groups of 3 skills per session — the default, configurable via `defaultDepth`), and **Economy** (all skills in one session — cheapest). Additionally, the PR diff is no longer embedded in agent prompts: it is written to `.pr-review/diff.patch` inside the repo checkout (alongside a `.pr-review/pr.md` manifest of changed files), and agents read only the sections relevant to their skills — a large PR no longer pays for its full diff in every session.
+
+### Model Profiles
+
+Each run picks its review model from profiles managed in Settings. Three kinds:
+
+- **claude** — the Claude Agent SDK, using your Claude Code login or `ANTHROPIC_API_KEY` (the two built-in defaults: Sonnet for review, Haiku for verification/reformatting).
+- **cli** — any agentic CLI you are logged into, run once per review session. Example Codex profile command line: `codex exec --sandbox read-only --cd {cwd} -` (`{cwd}` is replaced with the checkout path; with no `{prompt}` placeholder the prompt arrives on stdin). CLI profiles must carry their own sandbox/read-only flags — the tool cannot inject restrictions into a foreign CLI.
+- **openai** — any OpenAI-compatible API by base URL + key (e.g. Kimi via `https://api.moonshot.ai/v1`). The tool executes the model's `read_file`/`grep`/`list_files` calls locally, confined to the repo checkout.
+
+The New Review screen has a "Review model" picker (defaulting to the Settings-level review profile); the verify model is a Settings-level global.
+
+### Auto-Posting
+
+An opt-in "Auto-post findings" option posts findings to the PR automatically when a run completes — filtered by a severity threshold (high / medium+ / all) and an optional confirmed-only toggle. Posting is fingerprint-idempotent (re-runs never double-comment) and fail-closed: if existing PR comments cannot be read, nothing is auto-posted and findings stay in the report for manual review. Failed runs never auto-post.
 
 ### Concurrent Runs
 

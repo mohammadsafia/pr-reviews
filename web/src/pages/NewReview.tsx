@@ -30,6 +30,9 @@ const LAST_SKILLS_KEY = 'pr-reviewer.lastSkills'
 const VERIFY_KEY = 'pr-reviewer.verify'
 const DEPTH_KEY = 'pr-reviewer.depth'
 const PROFILE_KEY = 'pr-reviewer.profile'
+const AUTO_SUBMIT_KEY = 'pr-reviewer.autoSubmit'
+const AUTO_THRESHOLD_KEY = 'pr-reviewer.autoSubmitThreshold'
+const AUTO_CONFIRMED_KEY = 'pr-reviewer.autoSubmitConfirmedOnly'
 
 type Depth = 'thorough' | 'balanced' | 'economy'
 const DEPTH_OPTIONS: { value: Depth; label: string; hint: string }[] = [
@@ -69,6 +72,15 @@ export function NewReview() {
   )
   const [profile, setProfile] = useState<string | null>(() => localStorage.getItem(PROFILE_KEY))
   const [profiles, setProfiles] = useState<ModelProfile[]>([])
+  const [autoSubmitOn, setAutoSubmitOn] = useState<boolean>(
+    () => JSON.parse(localStorage.getItem(AUTO_SUBMIT_KEY) ?? 'false'),
+  )
+  const [threshold, setThreshold] = useState<'high' | 'medium' | 'all'>(
+    () => (localStorage.getItem(AUTO_THRESHOLD_KEY) as 'high' | 'medium' | 'all') ?? 'medium',
+  )
+  const [confirmedOnly, setConfirmedOnly] = useState<boolean>(
+    () => JSON.parse(localStorage.getItem(AUTO_CONFIRMED_KEY) ?? 'true'),
+  )
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [error, setError] = useState('')
   const [results, setResults] = useState<BatchOutcome[]>([])
@@ -151,6 +163,7 @@ export function NewReview() {
         verify,
         depth: depth ?? undefined,
         profile: profile ?? undefined,
+        autoSubmit: autoSubmitOn ? { threshold, confirmedOnly } : undefined,
         force: forceUrl !== undefined,
       }
       const outcomes = await submitBatch(targets, opts, createRun)
@@ -356,6 +369,55 @@ export function NewReview() {
         />
         <span className="text-sm">Verify findings (double-check each with a second agent)</span>
       </label>
+
+      <div className="flex flex-col gap-2">
+        <label className="flex w-fit items-start gap-2">
+          <Checkbox
+            checked={autoSubmitOn}
+            onCheckedChange={(v) => {
+              const nv = v === true
+              setAutoSubmitOn(nv)
+              localStorage.setItem(AUTO_SUBMIT_KEY, JSON.stringify(nv))
+            }}
+            className="mt-0.5 shrink-0"
+          />
+          <span className="text-sm">Auto-post findings to the PR when the run completes</span>
+        </label>
+        {autoSubmitOn && (
+          <div className="flex flex-wrap items-center gap-3 pl-6">
+            <select
+              aria-label="Auto-post severity threshold"
+              value={threshold}
+              onChange={(e) => {
+                setThreshold(e.target.value as 'high' | 'medium' | 'all')
+                localStorage.setItem(AUTO_THRESHOLD_KEY, e.target.value)
+              }}
+              className="border-muted-200 bg-background rounded-md border p-2 text-xs outline-none"
+            >
+              <option value="high">High only</option>
+              <option value="medium">Medium and up</option>
+              <option value="all">All severities</option>
+            </select>
+            <label className="flex items-center gap-2 text-xs">
+              <Checkbox
+                checked={confirmedOnly}
+                onCheckedChange={(v) => {
+                  const nv = v === true
+                  setConfirmedOnly(nv)
+                  localStorage.setItem(AUTO_CONFIRMED_KEY, JSON.stringify(nv))
+                }}
+                className="shrink-0"
+              />
+              Confirmed findings only
+            </label>
+            {!verify && confirmedOnly && (
+              <p className="text-muted-foreground text-xs">
+                Verification is off, so every finding counts as confirmed — this filter has no effect.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-col gap-2">
         <h2 className="text-sm font-medium">Review depth</h2>

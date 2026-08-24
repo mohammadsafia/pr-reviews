@@ -365,6 +365,16 @@ export function RunView() {
         </div>
       )}
 
+      {run.autoSubmitResult && (
+        <p className="text-muted-foreground text-sm">
+          {run.autoSubmitResult.dedupeChecked
+            ? `Auto-posted ${run.autoSubmitResult.posted} comment${run.autoSubmitResult.posted === 1 ? '' : 's'}` +
+              (run.autoSubmitResult.skipped > 0 ? ` · ${run.autoSubmitResult.skipped} skipped` : '') +
+              (run.autoSubmitResult.failed > 0 ? ` · ${run.autoSubmitResult.failed} failed` : '')
+            : 'Auto-post skipped — existing comments could not be checked.'}
+        </p>
+      )}
+
       {run.status === 'completed' &&
         (run.verify ? (
           <p className="text-muted-foreground text-sm">

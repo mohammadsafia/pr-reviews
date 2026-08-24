@@ -1,4 +1,4 @@
-import type { Config, RunEvent, RunRecord, SkillInfo } from './types.js'
+import type { AutoSubmit, Config, RunEvent, RunRecord, SkillInfo } from './types.js'
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(((await res.json()) as any).error ?? `HTTP ${res.status}`)
@@ -25,6 +25,7 @@ export async function createRun(input: {
   force?: boolean
   depth?: 'thorough' | 'balanced' | 'economy'
   profile?: string
+  autoSubmit?: AutoSubmit
 }): Promise<{ id?: string; error?: string; diffLines?: number; status: number }> {
   try {
     const res = await fetch('/api/runs', {
