@@ -11,6 +11,7 @@ const GLYPH: Record<RunEvent['kind'], string> = {
   tool: '⚙',
   text: '',
   error: '✕',
+  usage: '$',
 }
 
 const GLYPH_CLASS: Record<RunEvent['kind'], string> = {
@@ -18,6 +19,7 @@ const GLYPH_CLASS: Record<RunEvent['kind'], string> = {
   tool: 'text-code-muted',
   text: 'text-code-muted',
   error: 'text-destructive-400',
+  usage: 'text-code-muted',
 }
 
 function formatDuration(ms: number): string {

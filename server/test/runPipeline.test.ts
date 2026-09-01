@@ -231,6 +231,100 @@ describe('run pipeline integration', () => {
     ])
   })
 
+  it('accumulates usage from review and verify sessions onto the run record', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n+line2\n'
+    const finding = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'review-code',
+    }
+    const agent: AgentQuery = async function* (prompt) {
+      if (/adversarially verifying/.test(prompt)) {
+        const items = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(prompt)![1]) as { index: number }[]
+        yield {
+          type: 'result' as const,
+          ok: true,
+          text: '```json\n' + JSON.stringify(items.map((it) => ({ index: it.index, verdict: 'confirmed' }))) + '\n```',
+          usage: { inputTokens: 100, outputTokens: 20, costUsd: 0.01 },
+        }
+        return
+      }
+      yield {
+        type: 'result' as const,
+        ok: true,
+        text: '```json\n' + JSON.stringify([finding]) + '\n```',
+        usage: { inputTokens: 500, outputTokens: 80, costUsd: 0.05 },
+      }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [] },
+    })
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.usage).toEqual({ inputTokens: 600, outputTokens: 100, costUsd: 0.06 })
+  })
+
+  it('reports a partial total when only some sessions in the run measure usage', async () => {
+    // Mirrors a CLI-profile review paired with a Claude-SDK verify pass: the review
+    // session reports no usage at all (like cliQuery never does), only verify does.
+    const path = tempConfig()
+    const diff = '+line1\n+line2\n'
+    const finding = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'review-code',
+    }
+    const agent: AgentQuery = async function* (prompt) {
+      if (/adversarially verifying/.test(prompt)) {
+        const items = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(prompt)![1]) as { index: number }[]
+        yield {
+          type: 'result' as const,
+          ok: true,
+          text: '```json\n' + JSON.stringify(items.map((it) => ({ index: it.index, verdict: 'confirmed' }))) + '\n```',
+          usage: { inputTokens: 100, outputTokens: 20, costUsd: 0.01 },
+        }
+        return
+      }
+      // No `usage` field at all — the review session reports nothing, as a CLI adapter would.
+      yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [] },
+    })
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    // Only the verify session's numbers show up — never a fabricated figure for the
+    // review session that reported nothing.
+    expect(run.usage).toEqual({ inputTokens: 100, outputTokens: 20, costUsd: 0.01 })
+  })
+
   it('409s an oversized diff without force, and 202s (and completes) with force', async () => {
     const path = tempConfig(2) // tiny threshold so a 3-changed-line diff already exceeds it
     const diff = '+line1\n+line2\n+line3\n'

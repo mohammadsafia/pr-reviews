@@ -306,6 +306,14 @@ export function buildApp(
       if (!run) return
       const emit = (e: RunEvent) => {
         run!.transcript.push(e)
+        if (e.kind === 'usage') {
+          run!.usage ??= { inputTokens: 0, outputTokens: 0 }
+          run!.usage.inputTokens += e.inputTokens ?? 0
+          run!.usage.outputTokens += e.outputTokens ?? 0
+          // Round to avoid binary floating-point drift (e.g. 0.05 + 0.01 !== 0.06) while
+          // still preserving sub-cent precision, which real per-token costs can have.
+          if (e.costUsd !== undefined) run!.usage.costUsd = Math.round(((run!.usage.costUsd ?? 0) + e.costUsd) * 1e8) / 1e8
+        }
         s!.save(run!)
         events.emit(runId, e)
       }

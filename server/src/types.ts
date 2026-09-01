@@ -114,6 +114,9 @@ export interface RunRecord {
   error?: string
   postedCommentIds: number[]
   skillResults: SkillRunResult[]
+  /** Accumulated token/cost totals across every session in this run. Absent when no
+   * session reported usage (e.g. an all-CLI-profile run) — never a fabricated zero. */
+  usage?: { inputTokens: number; outputTokens: number; costUsd?: number }
 }
 
 export interface SkillInfo {
