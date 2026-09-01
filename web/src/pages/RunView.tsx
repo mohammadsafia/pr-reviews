@@ -6,10 +6,12 @@ import { toast } from 'sonner'
 import { Alert } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible } from '@/components/ui/collapsible'
 import { Dialog } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs } from '@/components/ui/tabs'
 import { FindingCard } from '@/components/FindingCard'
+import { diffFindings, scopeToRetriedSkills } from '@/lib/lineage'
 import { parseMarkdown } from '@/lib/markdown'
 import { failedSkillNames, runHasLoginExpiry } from '@/lib/runErrors'
 import { ReviewConsole } from '@/components/ReviewConsole'
@@ -162,6 +164,7 @@ export function RunView() {
   const { id = '' } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [run, setRun] = useState<RunRecord | null>(null)
+  const [parentRun, setParentRun] = useState<RunRecord | null>(null)
   const [live, setLive] = useState<RunEvent[]>([])
   const [checked, setChecked] = useState<Set<number>>(new Set())
   const [confirming, setConfirming] = useState(false)
@@ -214,6 +217,25 @@ export function RunView() {
       unsub()
     }
   }, [id])
+
+  useEffect(() => {
+    if (!run?.parentRunId) {
+      setParentRun(null)
+      return
+    }
+    let cancelled = false
+    getRun(run.parentRunId)
+      .then((p) => {
+        if (!cancelled) setParentRun(p)
+      })
+      .catch(() => {
+        // Parent deleted or unreachable — no lineage UI, rest of the page is unaffected.
+        if (!cancelled) setParentRun(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [run?.parentRunId])
 
   useEffect(() => {
     if (!confirming) return
@@ -320,6 +342,14 @@ export function RunView() {
   const newCount = postableIndexes(checked, preview).length
 
   const { confirmed, unverified } = partitionFindingsByVerdict(run.findings)
+
+  const delta =
+    parentRun && run.status === 'completed'
+      ? diffFindings(scopeToRetriedSkills(parentRun.findings, run.skills), run.findings)
+      : null
+  const newFindingKeys = new Set(
+    (delta?.newFindings ?? []).map((f) => `${f.file}|${f.category}|${f.summary}`),
+  )
 
   return (
     <div className="flex flex-col gap-6 pb-24">
@@ -447,6 +477,33 @@ export function RunView() {
               </p>
             )}
 
+            {delta && (delta.newFindings.length > 0 || delta.resolved.length > 0 || delta.stillOpen.length > 0) && (
+              <p className="text-muted-foreground text-sm">
+                Compared to the previous run: {delta.newFindings.length} new · {delta.resolved.length} resolved ·{' '}
+                {delta.stillOpen.length} still open
+              </p>
+            )}
+
+            {delta && delta.resolved.length > 0 && (
+              <Collapsible>
+                <Collapsible.Trigger className="text-muted-foreground hover:text-foreground w-fit text-sm">
+                  Resolved since last run ({delta.resolved.length})
+                </Collapsible.Trigger>
+                <Collapsible.Content>
+                  <ul className="mt-2 flex flex-col gap-1.5">
+                    {delta.resolved.map((f, i) => (
+                      <li key={i} className="text-muted-foreground flex items-center gap-2 text-sm">
+                        <span className="bg-code-surface text-code-foreground font-family-mono rounded px-1.5 py-0.5 text-xs">
+                          {f.file}:{f.line}
+                        </span>
+                        {f.summary}
+                      </li>
+                    ))}
+                  </ul>
+                </Collapsible.Content>
+              </Collapsible>
+            )}
+
             {run.status === 'completed' && run.findings.length === 0 ? (
               <Alert variant="success">
                 <CheckCircle2 className="h-4 w-4" />
@@ -477,6 +534,7 @@ export function RunView() {
                             index={index}
                             checked={checked.has(index)}
                             onToggle={toggleFinding}
+                            isNew={newFindingKeys.has(`${finding.file}|${finding.category}|${finding.summary}`)}
                           />
                         )
                       })}

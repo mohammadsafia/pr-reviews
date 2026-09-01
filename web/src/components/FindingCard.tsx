@@ -21,11 +21,13 @@ export function FindingCard({
   index,
   checked,
   onToggle,
+  isNew,
 }: {
   finding: Finding
   index: number
   checked: boolean
   onToggle: (index: number) => void
+  isNew?: boolean
 }) {
   const location = `${finding.file}:${finding.line}`
   const example = finding.example ? extractFence(finding.example) : null
@@ -63,6 +65,9 @@ export function FindingCard({
             <span className="text-muted-foreground text-xs">
               {finding.category} · {finding.skills.join(', ')}
             </span>
+            {isNew && (
+              <span className="bg-primary-15 text-primary rounded px-1.5 py-0.5 text-xs">new</span>
+            )}
             {finding.verdict === 'unverified' && (
               <Tooltip>
                 <Tooltip.Trigger asChild>
