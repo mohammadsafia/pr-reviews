@@ -1,3 +1,5 @@
+import type { DiffContextLine } from './review/diffContext.js'
+
 export type Provider = 'bitbucket' | 'github'
 
 export type Depth = 'thorough' | 'balanced' | 'economy'
@@ -56,6 +58,10 @@ export interface Finding {
   /** Short fenced before/after code snippet. Empty/absent on legacy runs and when the
    * model omitted it — renderers must degrade gracefully. */
   example?: string
+  /** A few lines of surrounding diff context, extracted from the diff at review time.
+   * Absent when the line couldn't be located in the diff, and on runs recorded before this
+   * field existed — renderers must degrade gracefully. */
+  context?: DiffContextLine[]
   skills: string[]
   verdict: 'confirmed' | 'unverified'
   verifierReason?: string

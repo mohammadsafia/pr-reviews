@@ -197,6 +197,40 @@ describe('run pipeline integration', () => {
     expect(run.skillResults).toEqual([{ skill: 'general', status: 'completed', findingCount: 1 }])
   })
 
+  it('attaches diff context to a finding whose line is present in the diff', async () => {
+    const path = tempConfig()
+    const diff = ['diff --git a/a.txt b/a.txt', '--- a/a.txt', '+++ b/a.txt', '@@ -1,1 +1,1 @@', '-main', '+feature'].join(
+      '\n',
+    )
+    const finding = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'review-code',
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgent([finding]),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [] },
+    })
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.findings[0].context).toEqual([
+      { type: 'remove', text: 'main', oldLine: 1 },
+      { type: 'add', text: 'feature', newLine: 1 },
+    ])
+  })
+
   it('409s an oversized diff without force, and 202s (and completes) with force', async () => {
     const path = tempConfig(2) // tiny threshold so a 3-changed-line diff already exceeds it
     const diff = '+line1\n+line2\n+line3\n'

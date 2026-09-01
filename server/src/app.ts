@@ -10,6 +10,7 @@ import { makeClient } from './providers/factory.js'
 import { parsePrUrl } from './providers/parsePrUrl.js'
 import { RepoCache, sweepStrandedWorktrees } from './repos/cache.js'
 import { writeContextPack } from './review/contextPack.js'
+import { extractDiffContext } from './review/diffContext.js'
 import { dedupeFindings } from './review/dedup.js'
 import { fingerprint } from './review/fingerprint.js'
 import { autoSubmitIndexes, postFindingComments, readExistingFingerprints } from './review/post.js'
@@ -408,6 +409,9 @@ export function buildApp(
       findings.sort((a, b) => {
         if (a.verdict !== b.verdict) return a.verdict === 'confirmed' ? -1 : 1
         return RANK[b.severity] - RANK[a.severity]
+      })
+      findings.forEach((f) => {
+        f.context = extractDiffContext(ctx.diff, f.file, f.line)
       })
       run.findings = findings
 
