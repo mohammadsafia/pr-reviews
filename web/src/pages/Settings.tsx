@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { AlertTriangle, Bot, Globe, RefreshCw, Terminal, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -182,8 +183,11 @@ export function Settings() {
 
         <Tabs.Content value="skills">
       <Card shadow="sm">
-        <Card.Header>
+        <Card.Header className="flex flex-row items-center justify-between">
           <Card.Title>Skill sources</Card.Title>
+          <Button asChild variant="secondary" size="sm">
+            <Link to="/skills/test">Test skill</Link>
+          </Button>
         </Card.Header>
         <Card.Content className="pt-0">
           <SkillSources
