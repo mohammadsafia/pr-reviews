@@ -4,15 +4,48 @@ import { Plus } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Collapsible } from '@/components/ui/collapsible'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusBadge } from '@/components/StatusBadge'
 
 import { listRuns } from '../api.js'
+import { summarizeUsage } from '../lib/usageSummary.js'
 import { shouldPoll } from '../lib/runsPolling.js'
 import { timeAgo } from '../lib/time.js'
 import type { RunRecord } from '../types.js'
 
 const POLL_MS = 3000
+
+function UsageSummaryBar({ runs }: { runs: RunRecord[] }) {
+  const s = summarizeUsage(runs)
+  const parts = [
+    `${runs.length} run${runs.length === 1 ? '' : 's'}`,
+    `${(s.totalInputTokens + s.totalOutputTokens).toLocaleString()} tokens`,
+  ]
+  if (s.totalCostUsd !== undefined) parts.push(`$${s.totalCostUsd.toFixed(2)}`)
+  if (s.unmeasuredRuns > 0) parts.push(`${s.unmeasuredRuns} without cost data`)
+
+  return (
+    <Collapsible>
+      <Collapsible.Trigger className="text-muted-foreground hover:text-foreground text-sm">
+        {parts.join(' · ')}
+      </Collapsible.Trigger>
+      <Collapsible.Content>
+        <div className="border-border mt-2 flex flex-col gap-1 rounded-lg border p-3">
+          {s.byProfile.map((p) => (
+            <div key={p.profile} className="flex items-center justify-between text-sm">
+              <span className="font-family-mono">{p.profile}</span>
+              <span className="text-muted-foreground">
+                {p.runs} run{p.runs === 1 ? '' : 's'} · {(p.inputTokens + p.outputTokens).toLocaleString()} tokens ·{' '}
+                {p.costUsd !== undefined ? `$${p.costUsd.toFixed(2)}` : '—'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Collapsible.Content>
+    </Collapsible>
+  )
+}
 
 export function Runs() {
   const [runs, setRuns] = useState<RunRecord[] | null>(null)
@@ -47,6 +80,8 @@ export function Runs() {
           </Link>
         </Button>
       </div>
+
+      {runs !== null && runs.length > 0 && <UsageSummaryBar runs={runs} />}
 
       {runs === null ? (
         <div className="flex flex-col gap-2">
