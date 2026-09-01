@@ -63,12 +63,17 @@ export function summarizeUsage(runs: RunRecord[]): UsageSummary
 
 Rules, matching A2's precedent exactly:
 
-- A run with no `usage` field contributes to `unmeasuredRuns` only — never a fabricated
-  zero folded into the totals.
+- A run with no `usage` field contributes to `unmeasuredRuns` only, never a fabricated
+  zero folded into the token/cost totals — but it still counts toward its profile's `runs`
+  tally in `byProfile`. A profile whose every run reports nothing (an all-CLI profile)
+  must still appear in the breakdown, with a real run count and 0 tokens/no cost — omitting
+  it entirely would look like a bug ("why don't my CLI runs show up?") rather than
+  correctly conveying "this profile never reports usage."
 - `totalCostUsd` stays `undefined` unless at least one run in the set reported a
   `costUsd`; when set, it's the sum of only the runs that reported one (a run with tokens
   but no cost — an OpenAI-compatible profile — contributes its tokens but not to the cost
-  sum, same "partial is honest" rule `RunView`'s own per-run badge already follows).
+  sum, same "partial is honest" rule `RunView`'s own per-run badge already follows). The
+  same rule applies per-profile.
 - Grouping key is `run.reviewProfile ?? 'unknown'`. `byProfile` entries are sorted by
   `runs` descending (busiest profile first) — a stable, obvious-to-read order needing no
   further UI control.
