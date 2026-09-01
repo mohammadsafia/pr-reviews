@@ -627,6 +627,7 @@ export function buildApp(
     const s = store()
     const run = s.get(id)
     if (!run) return reply.code(404).send({ error: 'Run not found' })
+    if (run.isTest) return reply.code(400).send({ error: 'Cannot post comments from a test run.' })
     const c = cfg()
     const client = clientFactory(run.pr, c)
     return postFindingComments(client, run, findingIndexes, (r) => s.save(r))

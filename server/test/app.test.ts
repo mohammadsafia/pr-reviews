@@ -275,6 +275,44 @@ describe('app', () => {
     expect(saved.postedCommentIds).toEqual([111])
   })
 
+  it('rejects posting comments on a test run', async () => {
+    const path = tempConfig()
+    const c = loadConfig(path)
+    const runStore = new RunStore(c.runsDir)
+    const run = runStore.create({
+      pr: { provider: 'bitbucket', workspace: 'ws', repo: 'repo', id: 1 },
+      prTitle: 'T',
+      skills: ['draft-skill'],
+      verify: false,
+      isTest: true,
+      testSkillContent: '---\nname: draft-skill\n---\nbody',
+      status: 'completed',
+    })
+    run.findings = [
+      {
+        file: 'a.ts',
+        line: 1,
+        severity: 'low',
+        category: 'style',
+        summary: 's',
+        detail: 'd',
+        suggestion: 'x',
+        skills: ['draft-skill'],
+        verdict: 'confirmed',
+      },
+    ]
+    runStore.save(run)
+
+    const app = buildApp({ configPath: path })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/runs/${run.id}/comments`,
+      payload: { findingIndexes: [0] },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toMatch(/test run/i)
+  })
+
   it('POST /api/runs/:id/comments skips findings whose fingerprint already exists (open → already-posted, resolved → resolved) and appends the marker when posting new ones', async () => {
     const path = tempConfig()
     const c = loadConfig(path)
