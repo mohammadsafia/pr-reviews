@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { buildApp } from '../src/app.js'
@@ -170,6 +170,96 @@ describe('app', () => {
       method: 'POST',
       url: '/api/skill-sources/refresh',
       payload: { dir: '/some/local/skills' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('GET /api/skills/local-dirs excludes a GitHub-sourced directory and includes a local one', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const c = loadConfig(path)
+    const localDir = c.skillDirs[0]
+    const reposDir = join(dirname(c.cacheDir), 'skill-repos')
+    const cloneRoot = join(reposDir, 'acme__skills')
+    const cloneSkillsDir = join(cloneRoot, 'skills')
+    mkdirSync(cloneSkillsDir, { recursive: true })
+    mkdirSync(join(cloneRoot, '.git'), { recursive: true })
+    c.skillDirs.push(cloneSkillsDir)
+    saveConfig(c, path)
+
+    const res = await app.inject({ method: 'GET', url: '/api/skills/local-dirs' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toContain(localDir)
+    expect(res.json()).not.toContain(cloneSkillsDir)
+  })
+
+  it('POST /api/skills/save creates a new skill directory and file', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const dir = loadConfig(path).skillDirs[0]
+    const content = '---\nname: my-new-skill\ndescription: d\n---\nbody'
+    const res = await app.inject({ method: 'POST', url: '/api/skills/save', payload: { dir, content } })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.ok).toBe(true)
+    expect(body.created).toBe(true)
+    expect(body.path).toBe(join(dir, 'my-new-skill', 'SKILL.md'))
+    expect(readFileSync(body.path, 'utf8')).toBe(content)
+  })
+
+  it('POST /api/skills/save 409s on a second save without overwrite, then succeeds with overwrite:true', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const dir = loadConfig(path).skillDirs[0]
+    const content = '---\nname: dup-skill\ndescription: d\n---\nfirst version'
+    await app.inject({ method: 'POST', url: '/api/skills/save', payload: { dir, content } })
+
+    const conflict = await app.inject({ method: 'POST', url: '/api/skills/save', payload: { dir, content } })
+    expect(conflict.statusCode).toBe(409)
+
+    const updated = '---\nname: dup-skill\ndescription: d\n---\nsecond version'
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/skills/save',
+      payload: { dir, content: updated, overwrite: true },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.created).toBe(false)
+    expect(readFileSync(body.path, 'utf8')).toBe(updated)
+  })
+
+  it('POST /api/skills/save 400s when the content has no name: frontmatter', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const dir = loadConfig(path).skillDirs[0]
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/skills/save',
+      payload: { dir, content: 'no frontmatter here' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('POST /api/skills/save 400s on an unsafe skill name', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const dir = loadConfig(path).skillDirs[0]
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/skills/save',
+      payload: { dir, content: '---\nname: ../escape\n---\nbody' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('POST /api/skills/save 400s when dir is not a known local skill directory', async () => {
+    const path = tempConfig()
+    const app = buildApp({ configPath: path })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/skills/save',
+      payload: { dir: '/not/a/configured/dir', content: '---\nname: x\n---\nbody' },
     })
     expect(res.statusCode).toBe(400)
   })
