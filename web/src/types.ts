@@ -82,6 +82,9 @@ export interface SkillRunResult {
 
 export interface RunRecord {
   id: string
+  /** The run this one was created from via "Retry run"/"Retry failed skills". Absent for
+   * a run started fresh from New Review. */
+  parentRunId?: string
   pr: PrRef
   prTitle: string
   skills: string[]

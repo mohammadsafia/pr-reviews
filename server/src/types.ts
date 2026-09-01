@@ -93,6 +93,10 @@ export interface SkillRunResult {
 
 export interface RunRecord {
   id: string
+  /** The run this one was created from via "Retry run"/"Retry failed skills". Absent for
+   * a run started fresh from New Review. Not validated against an existing run — a stale
+   * or missing parent is indistinguishable from having none at all. */
+  parentRunId?: string
   pr: PrRef
   prTitle: string
   skills: string[]

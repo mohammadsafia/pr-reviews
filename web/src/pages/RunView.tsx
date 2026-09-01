@@ -271,6 +271,7 @@ export function RunView() {
       depth: run.depth,
       profile: run.reviewProfile,
       force: true,
+      parentRunId: run.id,
     })
     if (res.id) navigate(`/runs/${res.id}`)
   }
@@ -287,6 +288,7 @@ export function RunView() {
       depth: run.depth,
       profile: run.reviewProfile,
       force: true,
+      parentRunId: run.id,
     })
     if (res.id) navigate(`/runs/${res.id}`)
   }

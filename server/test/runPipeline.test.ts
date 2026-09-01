@@ -325,6 +325,24 @@ describe('run pipeline integration', () => {
     expect(run.usage).toEqual({ inputTokens: 100, outputTokens: 20, costUsd: 0.01 })
   })
 
+  it('persists parentRunId when provided on create', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n'
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgent([]),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skills: [], parentRunId: 'parent-123' },
+    })
+    const { id } = createRes.json()
+    const getRes = await app.inject({ method: 'GET', url: `/api/runs/${id}` })
+    expect(getRes.json().parentRunId).toBe('parent-123')
+  })
+
   it('409s an oversized diff without force, and 202s (and completes) with force', async () => {
     const path = tempConfig(2) // tiny threshold so a 3-changed-line diff already exceeds it
     const diff = '+line1\n+line2\n+line3\n'

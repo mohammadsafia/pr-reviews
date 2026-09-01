@@ -231,6 +231,7 @@ export function buildApp(
       depth?: Depth
       profile?: string
       autoSubmit?: AutoSubmit
+      parentRunId?: string
     }
     const c = cfg()
     let pr: PrRef
@@ -280,6 +281,7 @@ export function buildApp(
       depth,
       reviewProfile: reviewProfileId,
       autoSubmit: body.autoSubmit,
+      parentRunId: body.parentRunId,
       status: 'queued',
     })
     runQueue.push(() => executeRun(run.id, { pr, meta, diff, depth, body }))

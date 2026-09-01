@@ -33,6 +33,7 @@ export async function createRun(input: {
   depth?: 'thorough' | 'balanced' | 'economy'
   profile?: string
   autoSubmit?: AutoSubmit
+  parentRunId?: string
 }): Promise<{ id?: string; error?: string; diffLines?: number; status: number }> {
   try {
     const res = await fetch('/api/runs', {
