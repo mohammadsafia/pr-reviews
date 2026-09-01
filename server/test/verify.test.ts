@@ -120,4 +120,20 @@ describe('verifyFindingsBatch', () => {
     expect(verdicts).toHaveLength(25)
     expect(verdicts.every((v) => v.verdict === 'confirmed')).toBe(true)
   })
+
+  it("emits a usage event carrying the verify session's tokens and cost", async () => {
+    const events: any[] = []
+    const agent: AgentQuery = async function* (prompt) {
+      const items = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(prompt)![1]) as { index: number }[]
+      yield {
+        type: 'result' as const,
+        ok: true,
+        text: '```json\n' + JSON.stringify(items.map((it) => ({ index: it.index, verdict: 'confirmed' }))) + '\n```',
+        usage: { inputTokens: 200, outputTokens: 15, costUsd: 0.01 },
+      }
+    }
+    await verifyFindingsBatch([mkFinding(0)], { meta, cwd: '/tmp' }, (e) => events.push(e), agent)
+    const usageEvent = events.find((e) => e.kind === 'usage')
+    expect(usageEvent).toMatchObject({ inputTokens: 200, outputTokens: 15, costUsd: 0.01, skill: 'verify' })
+  })
 })

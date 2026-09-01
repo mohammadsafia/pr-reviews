@@ -99,6 +99,32 @@ describe('runReview', () => {
     expect(out).toHaveLength(1)
     expect(calls).toEqual(['main', 'cheap'])
   })
+
+  it('emits a usage event when the agent result carries usage', async () => {
+    const events: RunEvent[] = []
+    const agent: AgentQuery = async function* () {
+      yield { type: 'result', ok: true, text: goodJson, usage: { inputTokens: 500, outputTokens: 80, costUsd: 0.05 } }
+    }
+    await runReview(input(agent), (e) => events.push(e))
+    const usageEvent = events.find((e) => e.kind === 'usage')
+    expect(usageEvent).toBeDefined()
+    expect(usageEvent).toMatchObject({ inputTokens: 500, outputTokens: 80, costUsd: 0.05 })
+  })
+
+  it("includes a reformat retry's usage as its own event, not merged away", async () => {
+    const events: RunEvent[] = []
+    const main: AgentQuery = async function* () {
+      yield { type: 'result', ok: true, text: 'no json here', usage: { inputTokens: 100, outputTokens: 10 } }
+    }
+    const cheap: AgentQuery = async function* () {
+      yield { type: 'result', ok: true, text: goodJson, usage: { inputTokens: 50, outputTokens: 5 } }
+    }
+    await runReview(input(main, cheap), (e) => events.push(e))
+    const usageEvents = events.filter((e) => e.kind === 'usage')
+    expect(usageEvents).toHaveLength(2)
+    expect(usageEvents[0]).toMatchObject({ inputTokens: 100, outputTokens: 10 })
+    expect(usageEvents[1]).toMatchObject({ inputTokens: 50, outputTokens: 5 })
+  })
 })
 
 describe('buildQueryOptions', () => {

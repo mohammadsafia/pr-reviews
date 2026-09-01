@@ -94,6 +94,11 @@ async function runVerifyTurn(
       if (msg.text) emit({ kind: 'text', text: msg.text, at })
       if (msg.tool) emit({ kind: 'tool', text: msg.tool, at })
     } else {
+      if (msg.usage) {
+        const { inputTokens, outputTokens, costUsd } = msg.usage
+        const text = `${(inputTokens + outputTokens).toLocaleString()} tokens${costUsd !== undefined ? ` · $${costUsd.toFixed(2)}` : ''}`
+        emit({ kind: 'usage', text, at, inputTokens, outputTokens, costUsd })
+      }
       if (!msg.ok) throw new Error(msg.text)
       resultText = msg.text
     }

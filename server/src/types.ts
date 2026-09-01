@@ -70,12 +70,16 @@ export interface Finding {
 export type RunStatus = 'running' | 'queued' | 'completed' | 'failed'
 
 export interface RunEvent {
-  kind: 'status' | 'text' | 'tool' | 'error'
+  kind: 'status' | 'text' | 'tool' | 'error' | 'usage'
   text: string
   at: string
   /** Which per-skill subagent produced this event. Absent for the shared prep phase
    * (checkout) events, which run before the fan-out and aren't attributable to any skill. */
   skill?: string
+  /** Set only on kind:'usage' events. */
+  inputTokens?: number
+  outputTokens?: number
+  costUsd?: number
 }
 
 /** Outcome of one skill's subagent within a fanned-out run — one per review unit
