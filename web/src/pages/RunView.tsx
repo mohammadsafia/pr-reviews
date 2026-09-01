@@ -359,19 +359,26 @@ export function RunView() {
           <div className="flex min-w-0 flex-wrap items-center gap-3">
             <h1 className="truncate text-2xl font-semibold tracking-tight">{run.prTitle}</h1>
             <StatusBadge status={run.status} />
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {run.status === 'failed' && (
-              <Button variant="secondary" size="sm" onClick={retry}>
-                Retry run
-              </Button>
-            )}
-            {failed.length > 0 && (run.status === 'completed' || run.status === 'failed') && (
-              <Button variant="secondary" size="sm" onClick={retryFailedSkills}>
-                Retry failed skills ({failed.length})
-              </Button>
+            {run.isTest && (
+              <Badge variant="warning" size="xs">
+                Test run
+              </Badge>
             )}
           </div>
+          {!run.isTest && (
+            <div className="flex shrink-0 gap-2">
+              {run.status === 'failed' && (
+                <Button variant="secondary" size="sm" onClick={retry}>
+                  Retry run
+                </Button>
+              )}
+              {failed.length > 0 && (run.status === 'completed' || run.status === 'failed') && (
+                <Button variant="secondary" size="sm" onClick={retryFailedSkills}>
+                  Retry failed skills ({failed.length})
+                </Button>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="muted" size="xs" className="font-family-mono">
@@ -535,6 +542,7 @@ export function RunView() {
                             checked={checked.has(index)}
                             onToggle={toggleFinding}
                             isNew={newFindingKeys.has(`${finding.file}|${finding.category}|${finding.summary}`)}
+                            selectable={!run.isTest}
                           />
                         )
                       })}
@@ -551,7 +559,7 @@ export function RunView() {
         </Tabs.Content>
       </Tabs>
 
-      {checked.size > 0 && (
+      {!run.isTest && checked.size > 0 && (
         <div className="animate-in slide-in-from-bottom-4 border-border bg-popover fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-full border py-2 pr-2 pl-5 shadow-deep">
           <span className="text-sm font-medium">{checked.size} selected</span>
           <Button size="sm" className="rounded-full" onClick={() => setConfirming(true)}>

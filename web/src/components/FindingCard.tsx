@@ -22,12 +22,14 @@ export function FindingCard({
   checked,
   onToggle,
   isNew,
+  selectable = true,
 }: {
   finding: Finding
   index: number
   checked: boolean
   onToggle: (index: number) => void
   isNew?: boolean
+  selectable?: boolean
 }) {
   const location = `${finding.file}:${finding.line}`
   const example = finding.example ? extractFence(finding.example) : null
@@ -43,12 +45,14 @@ export function FindingCard({
       )}
     >
       <Card.Content className="flex items-start gap-3 py-4">
-        <Checkbox
-          checked={checked}
-          onCheckedChange={() => onToggle(index)}
-          className="mt-1 shrink-0"
-          aria-label={`Select finding at ${location}`}
-        />
+        {selectable && (
+          <Checkbox
+            checked={checked}
+            onCheckedChange={() => onToggle(index)}
+            className="mt-1 shrink-0"
+            aria-label={`Select finding at ${location}`}
+          />
+        )}
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <button
