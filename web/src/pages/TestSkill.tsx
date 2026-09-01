@@ -12,11 +12,15 @@ import { Textarea } from '@/components/ui/textarea'
 import { createTestRun, getConfig } from '../api.js'
 import type { ModelProfile } from '../types.js'
 
+const URL_KEY = 'pr-reviewer.testSkill.url'
+const CONTENT_KEY = 'pr-reviewer.testSkill.content'
+const PROFILE_KEY = 'pr-reviewer.testSkill.profile'
+
 export function TestSkill() {
   const navigate = useNavigate()
-  const [url, setUrl] = useState('')
-  const [skillContent, setSkillContent] = useState('')
-  const [profile, setProfile] = useState<string | null>(null)
+  const [url, setUrl] = useState(() => localStorage.getItem(URL_KEY) ?? '')
+  const [skillContent, setSkillContent] = useState(() => localStorage.getItem(CONTENT_KEY) ?? '')
+  const [profile, setProfile] = useState<string | null>(() => localStorage.getItem(PROFILE_KEY))
   const [profiles, setProfiles] = useState<ModelProfile[]>([])
   const [error, setError] = useState('')
   const [oversized, setOversized] = useState<{ diffLines: number } | null>(null)
@@ -70,7 +74,10 @@ export function TestSkill() {
               className="min-h-10 text-sm"
               placeholder="https://bitbucket.org/workspace/repo/pull-requests/123"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value)
+                localStorage.setItem(URL_KEY, e.target.value)
+              }}
             />
           </div>
 
@@ -81,13 +88,22 @@ export function TestSkill() {
               className="font-family-mono min-h-64 text-sm"
               placeholder={'---\nname: my-skill\ndescription: what it checks\n---\n\nReview instructions…'}
               value={skillContent}
-              onChange={(e) => setSkillContent(e.target.value)}
+              onChange={(e) => {
+                setSkillContent(e.target.value)
+                localStorage.setItem(CONTENT_KEY, e.target.value)
+              }}
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
             <Label>Review model</Label>
-            <Select value={profile ?? undefined} onValueChange={setProfile}>
+            <Select
+              value={profile ?? undefined}
+              onValueChange={(v) => {
+                setProfile(v)
+                localStorage.setItem(PROFILE_KEY, v)
+              }}
+            >
               <Select.Trigger>
                 <Select.Value placeholder="Loading…" />
               </Select.Trigger>
