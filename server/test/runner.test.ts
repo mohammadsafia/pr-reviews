@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { runReview, type AgentQuery } from '../src/review/runner.js'
 import { buildQueryOptions } from '../src/models/claude.js'
 import type { RunEvent } from '../src/types.js'
@@ -125,5 +125,54 @@ describe('buildQueryOptions', () => {
     const opts = buildQueryOptions('/tmp/cwd', 'claude-opus-4-8')
     expect(opts.cwd).toBe('/tmp/cwd')
     expect(opts.model).toBe('claude-opus-4-8')
+  })
+})
+
+describe('claudeQuery usage', () => {
+  it('extracts usage and cost from a successful SDK result', async () => {
+    vi.resetModules()
+    vi.doMock('@anthropic-ai/claude-agent-sdk', () => ({
+      query: () =>
+        (async function* () {
+          yield {
+            type: 'result',
+            subtype: 'success',
+            result: 'done',
+            total_cost_usd: 0.05,
+            usage: { input_tokens: 500, output_tokens: 80 },
+          }
+        })(),
+    }))
+    const { claudeQuery } = await import('../src/models/claude.js')
+    const q = claudeQuery({ id: 'c', label: 'Claude', kind: 'claude', model: 'claude-sonnet-5' })
+    const events: any[] = []
+    for await (const m of q('prompt', { cwd: '/tmp' })) events.push(m)
+    const result = events.find((e) => e.type === 'result')
+    expect(result.usage).toEqual({ inputTokens: 500, outputTokens: 80, costUsd: 0.05 })
+    vi.doUnmock('@anthropic-ai/claude-agent-sdk')
+  })
+
+  it('extracts usage and cost from a failed SDK result — a failed session still spent tokens', async () => {
+    vi.resetModules()
+    vi.doMock('@anthropic-ai/claude-agent-sdk', () => ({
+      query: () =>
+        (async function* () {
+          yield {
+            type: 'result',
+            subtype: 'error_during_execution',
+            errors: ['boom'],
+            total_cost_usd: 0.02,
+            usage: { input_tokens: 300, output_tokens: 10 },
+          }
+        })(),
+    }))
+    const { claudeQuery } = await import('../src/models/claude.js')
+    const q = claudeQuery({ id: 'c', label: 'Claude', kind: 'claude', model: 'claude-sonnet-5' })
+    const events: any[] = []
+    for await (const m of q('prompt', { cwd: '/tmp' })) events.push(m)
+    const result = events.find((e) => e.type === 'result')
+    expect(result.ok).toBe(false)
+    expect(result.usage).toEqual({ inputTokens: 300, outputTokens: 10, costUsd: 0.02 })
+    vi.doUnmock('@anthropic-ai/claude-agent-sdk')
   })
 })

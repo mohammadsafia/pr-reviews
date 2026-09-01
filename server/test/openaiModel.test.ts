@@ -57,6 +57,15 @@ describe('openaiQuery', () => {
     expect(result.text).toBe('```json\n[]\n```')
   })
 
+  it('accumulates prompt/completion tokens across a multi-iteration tool-calling loop', async () => {
+    const { fn } = fakeFetch([
+      { ...msg(null, [{ id: 't1', type: 'function', function: { name: 'read_file', arguments: '{"path":"a.ts"}' } }]), usage: { prompt_tokens: 100, completion_tokens: 20 } },
+      { ...msg('```json\n[]\n```'), usage: { prompt_tokens: 150, completion_tokens: 30 } },
+    ])
+    const result = (await collect(openaiQuery(profile, fn), 'review it', cwd)).find((e) => e.type === 'result')
+    expect(result.usage).toEqual({ inputTokens: 250, outputTokens: 50 })
+  })
+
   it('maps HTTP errors to a failed result without echoing the key', async () => {
     const { fn } = fakeFetch([{ status: 401, body: { error: 'bad key' } }])
     const result = (await collect(openaiQuery(profile, fn), 'x', cwd)).find((e) => e.type === 'result')

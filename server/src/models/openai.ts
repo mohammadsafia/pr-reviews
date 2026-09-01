@@ -14,6 +14,8 @@ export function openaiQuery(
   return async function* (prompt, opts): AsyncGenerator<AgentMessage> {
     const messages: any[] = [{ role: 'user', content: prompt }]
     let lastText = ''
+    let inputTokens = 0
+    let outputTokens = 0
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       let res: Response
       try {
@@ -23,18 +25,22 @@ export function openaiQuery(
           body: JSON.stringify({ model: profile.model, messages, tools: TOOL_DEFS }),
         })
       } catch (err: any) {
-        yield { type: 'result', ok: false, text: `API request failed: ${err.message}` }
+        yield { type: 'result', ok: false, text: `API request failed: ${err.message}`, usage: { inputTokens, outputTokens } }
         return
       }
       if (!res.ok) {
         const body = (await res.text()).slice(0, 300)
-        yield { type: 'result', ok: false, text: `API error ${res.status}: ${body}` }
+        yield { type: 'result', ok: false, text: `API error ${res.status}: ${body}`, usage: { inputTokens, outputTokens } }
         return
       }
       const data: any = await res.json()
+      if (data.usage) {
+        inputTokens += data.usage.prompt_tokens ?? 0
+        outputTokens += data.usage.completion_tokens ?? 0
+      }
       const message = data.choices?.[0]?.message
       if (!message) {
-        yield { type: 'result', ok: false, text: 'API returned no message' }
+        yield { type: 'result', ok: false, text: 'API returned no message', usage: { inputTokens, outputTokens } }
         return
       }
       messages.push(message)
@@ -44,7 +50,7 @@ export function openaiQuery(
       }
       const toolCalls: any[] = message.tool_calls ?? []
       if (toolCalls.length === 0) {
-        yield { type: 'result', ok: true, text: lastText }
+        yield { type: 'result', ok: true, text: lastText, usage: { inputTokens, outputTokens } }
         return
       }
       for (const call of toolCalls) {
@@ -60,6 +66,6 @@ export function openaiQuery(
         messages.push({ role: 'tool', tool_call_id: call.id, content: result.content })
       }
     }
-    yield { type: 'result', ok: true, text: lastText }
+    yield { type: 'result', ok: true, text: lastText, usage: { inputTokens, outputTokens } }
   }
 }

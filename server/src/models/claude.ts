@@ -37,11 +37,17 @@ export function claudeQuery(profile: Extract<ModelProfile, { kind: 'claude' }>):
       if (msg.type === 'result') {
         // SDKResultMessage is a discriminated union on `subtype`: only the 'success'
         // variant carries `result`; error variants carry `errors: string[]` instead
-        // (there is no shared `.result` field to fall back on).
+        // (there is no shared `.result` field to fall back on). Both variants carry
+        // `usage`/`total_cost_usd` — a failed session still spent real tokens.
         yield {
           type: 'result',
           ok: msg.subtype === 'success',
           text: msg.subtype === 'success' ? msg.result : msg.errors.join('; ') || 'agent failed',
+          usage: {
+            inputTokens: msg.usage.input_tokens,
+            outputTokens: msg.usage.output_tokens,
+            costUsd: msg.total_cost_usd,
+          },
         }
       }
     }

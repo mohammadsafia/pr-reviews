@@ -4,7 +4,12 @@ import { buildReviewPrompt } from './prompt.js'
 
 export type AgentMessage =
   | { type: 'assistant'; text?: string; tool?: string }
-  | { type: 'result'; ok: boolean; text: string }
+  | {
+      type: 'result'
+      ok: boolean
+      text: string
+      usage?: { inputTokens: number; outputTokens: number; costUsd?: number }
+    }
 
 /** One agent session. Adapters close over their model profile — callers only supply the
  * working directory; model choice is an orchestration concern (see models/resolve.ts). */

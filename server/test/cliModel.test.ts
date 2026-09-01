@@ -22,6 +22,7 @@ describe('cliQuery', () => {
     const result = events.find((e) => e.type === 'result')
     expect(result.ok).toBe(true)
     expect(result.text.trim()).toBe('hello|/tmp')
+    expect(result.usage).toBeUndefined()
   })
 
   it('feeds the prompt via stdin when no arg contains {prompt}, and streams stdout as assistant events', async () => {
