@@ -52,6 +52,18 @@ export function extractFindings(text: string, validSkills: string[]): Finding[] 
   })
 }
 
+const SEVERITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1, info: 0 }
+
+/** Confirmed findings sort before unverified ones regardless of severity; within each
+ * verdict, higher severity sorts first. Mutates and returns the input array (matches the
+ * in-place .sort() this replaces at its one call site). */
+export function sortFindings(findings: Finding[]): Finding[] {
+  return findings.sort((a, b) => {
+    if (a.verdict !== b.verdict) return a.verdict === 'confirmed' ? -1 : 1
+    return SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]
+  })
+}
+
 export function countDiffLines(diff: string): number {
   return diff
     .split('\n')

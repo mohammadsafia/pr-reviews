@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync, type Dirent } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { SkillInfo } from '../types.js'
 
-function parseFrontmatter(md: string): Record<string, string> {
+export function parseFrontmatter(md: string): Record<string, string> {
   const m = /^---\n([\s\S]*?)\n---/.exec(md)
   if (!m) return {}
   const out: Record<string, string> = {}

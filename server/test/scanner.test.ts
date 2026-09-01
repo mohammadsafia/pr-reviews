@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { scanSkillDirs, readSkillContent } from '../src/skills/scanner.js'
+import { parseFrontmatter, scanSkillDirs, readSkillContent } from '../src/skills/scanner.js'
 
 let root: string
 
@@ -149,5 +149,16 @@ describe('scanSkillDirs (nested/categorized layout)', () => {
     expect(skills.some((s) => s.name === 'reference-should-not-appear')).toBe(false)
     const foo = skills.find((s) => s.name === 'foo')!
     expect(foo.dir).toBe(join(nestedRoot, 'skills', 'misc', 'foo'))
+  })
+})
+
+describe('parseFrontmatter', () => {
+  it('parses name/description/category out of YAML frontmatter', () => {
+    const md = '---\nname: my-skill\ndescription: does things\ncategory: review\n---\nbody'
+    expect(parseFrontmatter(md)).toEqual({ name: 'my-skill', description: 'does things', category: 'review' })
+  })
+
+  it('returns an empty object when there is no frontmatter block', () => {
+    expect(parseFrontmatter('just a body, no frontmatter')).toEqual({})
   })
 })

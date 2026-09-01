@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { extractFindings, FindingsParseError, countDiffLines } from '../src/review/findings.js'
+import { extractFindings, FindingsParseError, countDiffLines, sortFindings } from '../src/review/findings.js'
+import type { Finding } from '../src/types.js'
 
 // `valid` is the raw agent-output shape (matches FindingSchema, which keeps `skill: string`).
 // `expected` is what extractFindings maps it to: `skill` -> `skills: [skill]`, plus a
@@ -89,6 +90,34 @@ describe('extractFindings with validSkills', () => {
       '```json\n' + JSON.stringify([{ ...base, skill: 'skill-a', example: '```ts\n// before\n```' }]) + '\n```'
     const [f] = extractFindings(text, ['skill-a'])
     expect(f.example).toBe('```ts\n// before\n```')
+  })
+})
+
+describe('sortFindings', () => {
+  const f = (overrides: Partial<Finding> = {}): Finding => ({
+    file: 'a.ts',
+    line: 1,
+    severity: 'low',
+    category: 'style',
+    summary: 's',
+    detail: 'd',
+    suggestion: 'x',
+    skills: ['s'],
+    verdict: 'confirmed',
+    ...overrides,
+  })
+
+  it('sorts confirmed findings before unverified ones, regardless of severity', () => {
+    const input = [f({ severity: 'low', verdict: 'confirmed' }), f({ severity: 'high', verdict: 'unverified' })]
+    const out = sortFindings(input)
+    expect(out[0].verdict).toBe('confirmed')
+    expect(out[1].verdict).toBe('unverified')
+  })
+
+  it('within the same verdict, sorts high severity before low', () => {
+    const input = [f({ severity: 'low' }), f({ severity: 'high' }), f({ severity: 'medium' })]
+    const out = sortFindings(input)
+    expect(out.map((x) => x.severity)).toEqual(['high', 'medium', 'low'])
   })
 })
 

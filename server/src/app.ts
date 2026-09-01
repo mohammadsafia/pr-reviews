@@ -14,7 +14,7 @@ import { extractDiffContext } from './review/diffContext.js'
 import { dedupeFindings } from './review/dedup.js'
 import { fingerprint } from './review/fingerprint.js'
 import { autoSubmitIndexes, postFindingComments, readExistingFingerprints } from './review/post.js'
-import { countDiffLines } from './review/findings.js'
+import { countDiffLines, sortFindings } from './review/findings.js'
 import { groupSkills } from './review/grouping.js'
 import { profileById, type ModelProfile } from './models/profiles.js'
 import { queryFor } from './models/resolve.js'
@@ -415,11 +415,7 @@ export function buildApp(
           if (verdicts[i].reason) f.verifierReason = verdicts[i].reason
         })
       }
-      const RANK: Record<string, number> = { high: 3, medium: 2, low: 1, info: 0 }
-      findings.sort((a, b) => {
-        if (a.verdict !== b.verdict) return a.verdict === 'confirmed' ? -1 : 1
-        return RANK[b.severity] - RANK[a.severity]
-      })
+      sortFindings(findings)
       findings.forEach((f) => {
         f.context = extractDiffContext(ctx.diff, f.file, f.line)
       })

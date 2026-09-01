@@ -109,6 +109,10 @@ export interface RunRecord {
   /** Accumulated token/cost totals across every session in this run. Absent when no
    * session reported usage (e.g. an all-CLI-profile run) — never a fabricated zero. */
   usage?: { inputTokens: number; outputTokens: number; costUsd?: number }
+  /** True for a run created via the skill test-run flow. Excluded from the Runs list. */
+  isTest?: boolean
+  /** The exact skill content that was tested, present only when isTest is true. */
+  testSkillContent?: string
 }
 
 export interface SkillInfo {
