@@ -360,6 +360,18 @@ export function RunView() {
           <Badge variant={run.verify ? 'accent' : 'muted'} size="xs">
             {run.verify ? 'verified' : 'unverified run'}
           </Badge>
+          {run.usage ? (
+            <Badge variant="muted" size="xs">
+              {(run.usage.inputTokens + run.usage.outputTokens).toLocaleString()} tokens
+              {run.usage.costUsd !== undefined && ` · $${run.usage.costUsd.toFixed(2)}`}
+            </Badge>
+          ) : (
+            run.status === 'completed' && (
+              <Badge variant="muted" size="xs">
+                cost unavailable
+              </Badge>
+            )
+          )}
           {run.skills.map((s) => (
             <Badge key={s} variant="muted" size="xs">
               {s}
