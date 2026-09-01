@@ -343,6 +343,102 @@ describe('run pipeline integration', () => {
     expect(getRes.json().parentRunId).toBe('parent-123')
   })
 
+  it('runs a test-run session with a single ad-hoc skill, skips verify, and tags isTest', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n'
+    const finding = {
+      file: 'a.txt',
+      line: 1,
+      severity: 'low',
+      category: 'style',
+      summary: 's',
+      detail: 'd',
+      suggestion: 'x',
+      skill: 'draft-skill',
+    }
+    let verifyWasAsked = false
+    const agent: AgentQuery = async function* (prompt) {
+      if (/adversarially verifying/.test(prompt)) {
+        verifyWasAsked = true
+        yield { type: 'result' as const, ok: true, text: '```json\n[]\n```' }
+        return
+      }
+      yield { type: 'result' as const, ok: true, text: '```json\n' + JSON.stringify([finding]) + '\n```' }
+    }
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: agent,
+    })
+    const skillContent = '---\nname: draft-skill\ndescription: d\n---\nDraft body under test'
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/skills/test-run',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skillContent },
+    })
+    expect(createRes.statusCode).toBe(202)
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.status).toBe('completed')
+    expect(run.isTest).toBe(true)
+    expect(run.testSkillContent).toBe(skillContent)
+    expect(run.skills).toEqual(['draft-skill'])
+    const { skill: _skill, ...findingRest } = finding
+    expect(run.findings).toEqual([{ ...findingRest, example: '', skills: ['draft-skill'], verdict: 'confirmed' }])
+    expect(verifyWasAsked).toBe(false)
+  })
+
+  it('defaults the skill name to "test" when the pasted content has no frontmatter', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n'
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgent([]),
+    })
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/skills/test-run',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skillContent: 'no frontmatter here' },
+    })
+    const { id } = createRes.json()
+    const run = await pollRun(app, id)
+    expect(run.skills).toEqual(['test'])
+  })
+
+  it('excludes test runs from GET /api/runs but still resolves them by id', async () => {
+    const path = tempConfig()
+    const diff = '+line1\n'
+    const app = buildApp({
+      configPath: path,
+      clientFactory: () => fakeClient({ ...meta, sourceCommit: commit }, diff),
+      agentQuery: fakeAgent([]),
+    })
+    const testRes = await app.inject({
+      method: 'POST',
+      url: '/api/skills/test-run',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/1', skillContent: '---\nname: t\n---\nbody' },
+    })
+    const testId = testRes.json().id
+    await pollRun(app, testId)
+
+    const realRes = await app.inject({
+      method: 'POST',
+      url: '/api/runs',
+      payload: { url: 'https://bitbucket.org/ws/repo/pull-requests/2', skills: [] },
+    })
+    const realId = realRes.json().id
+    await pollRun(app, realId)
+
+    const list = (await app.inject({ method: 'GET', url: '/api/runs' })).json()
+    expect(list.map((r: any) => r.id)).toContain(realId)
+    expect(list.map((r: any) => r.id)).not.toContain(testId)
+
+    const fetched = await app.inject({ method: 'GET', url: `/api/runs/${testId}` })
+    expect(fetched.statusCode).toBe(200)
+    expect(fetched.json().isTest).toBe(true)
+  })
+
   it('409s an oversized diff without force, and 202s (and completes) with force', async () => {
     const path = tempConfig(2) // tiny threshold so a 3-changed-line diff already exceeds it
     const diff = '+line1\n+line2\n+line3\n'

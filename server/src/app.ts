@@ -21,7 +21,7 @@ import { queryFor } from './models/resolve.js'
 import { runReview, type AgentQuery } from './review/runner.js'
 import { verifyFindingsBatch } from './review/verify.js'
 import { makeTaskPool } from './queue.js'
-import { readSkillContent, scanSkillDirs } from './skills/scanner.js'
+import { parseFrontmatter, readSkillContent, scanSkillDirs } from './skills/scanner.js'
 import { addGithubSource, refreshGithubSource, skillRepoCloneDir } from './skills/sources.js'
 import { RunStore } from './store/runs.js'
 import type {
@@ -213,7 +213,7 @@ export function buildApp(
     return { prs, errors }
   })
 
-  app.get('/api/runs', async () => store().list())
+  app.get('/api/runs', async () => store().list().filter((r) => !r.isTest))
 
   app.get('/api/runs/:id', async (req, reply) => {
     const run = store().get((req.params as { id: string }).id)
@@ -285,6 +285,48 @@ export function buildApp(
       status: 'queued',
     })
     runQueue.push(() => executeRun(run.id, { pr, meta, diff, depth, body }))
+    return reply.code(202).send({ id: run.id })
+  })
+
+  app.post('/api/skills/test-run', async (req, reply) => {
+    const body = req.body as { url: string; skillContent: string; profile?: string; force?: boolean }
+    const c = cfg()
+    let pr: PrRef
+    try {
+      pr = parsePrUrl(body.url)
+    } catch (err: any) {
+      return reply.code(400).send({ error: err.message })
+    }
+    const client = clientFactory(pr, c)
+    let meta: PrMeta
+    let diff: string
+    try {
+      meta = await client.getPullRequest(pr)
+      diff = await client.getDiff(pr)
+    } catch (err: any) {
+      const code = err instanceof PrAuthError ? 401 : 502
+      return reply.code(code).send({ error: err.message })
+    }
+    const diffLines = countDiffLines(diff)
+    if (diffLines > c.diffWarnLines && !body.force) {
+      return reply.code(409).send({
+        error: `Diff has ${diffLines} changed lines (threshold ${c.diffWarnLines}). Re-submit with force to proceed.`,
+        diffLines,
+      })
+    }
+    if (body.profile !== undefined && !c.modelProfiles.some((p) => p.id === body.profile)) {
+      return reply.code(400).send({ error: `Unknown model profile: ${body.profile}` })
+    }
+    const run = store().create({
+      pr,
+      prTitle: meta.title,
+      skills: [],
+      verify: false,
+      isTest: true,
+      testSkillContent: body.skillContent,
+      status: 'queued',
+    })
+    runQueue.push(() => executeTestRun(run.id, { pr, meta, diff, skillContent: body.skillContent, profile: body.profile }))
     return reply.code(202).send({ id: run.id })
   })
 
@@ -464,6 +506,82 @@ export function buildApp(
           await cache.removeWorktree(ctx.pr, runId)
         } catch (err: any) {
           // Cleanup must never change the run's outcome; the startup sweep is the backstop.
+          if (run)
+            run.transcript.push({
+              kind: 'status',
+              text: `Worktree cleanup failed: ${err.message}`,
+              at: new Date().toISOString(),
+            })
+        }
+      }
+      if (s && run) {
+        run.finishedAt = new Date().toISOString()
+        s.save(run)
+      }
+      events.emit(runId, { kind: 'done' })
+    }
+  }
+
+  async function executeTestRun(
+    runId: string,
+    ctx: { pr: PrRef; meta: PrMeta; diff: string; skillContent: string; profile?: string },
+  ): Promise<void> {
+    let s: RunStore | undefined
+    let run: RunRecord | undefined
+    let cache: RepoCache | undefined
+    try {
+      const c = cfg()
+      s = store()
+      run = s.get(runId)
+      if (!run) return
+      const emit = (e: RunEvent) => {
+        run!.transcript.push(e)
+        s!.save(run!)
+        events.emit(runId, e)
+      }
+      run.status = 'running'
+      s.save(run)
+      emit({ kind: 'status', text: 'Preparing repository checkout…', at: new Date().toISOString() })
+      const client = clientFactory(ctx.pr, c)
+      cache = new RepoCache(c.cacheDir)
+      const cwd = await cache.ensureWorktree(ctx.pr, {
+        cloneUrl: client.cloneUrl(ctx.pr, c.cloneProtocol),
+        sourceBranch: ctx.meta.sourceBranch,
+        commit: ctx.meta.sourceCommit,
+        runId,
+      })
+      emit({ kind: 'status', text: 'Writing review context…', at: new Date().toISOString() })
+      writeContextPack(cwd, ctx.meta, ctx.diff)
+      const skillName = parseFrontmatter(ctx.skillContent).name ?? 'test'
+      emit({ kind: 'status', text: `Testing skill "${skillName}"…`, at: new Date().toISOString() })
+      const profile = profileById(c, ctx.profile)
+      const query = agentQuery ?? queryFactory(profile)
+      const findings = await runReview(
+        {
+          meta: ctx.meta,
+          skills: [{ name: skillName, content: ctx.skillContent }],
+          cwd,
+          query,
+          reformatQuery: query,
+        },
+        emit,
+      )
+      run.skills = [skillName]
+      run.findings = sortFindings(findings)
+      run.status = 'completed'
+    } catch (err: any) {
+      if (s && run) {
+        run.status = 'failed'
+        run.error = err.message
+        const errorEvent: RunEvent = { kind: 'error', text: err.message, at: new Date().toISOString() }
+        run.transcript.push(errorEvent)
+        events.emit(runId, errorEvent)
+      }
+    } finally {
+      if (cache) {
+        try {
+          await cache.removeWorktree(ctx.pr, runId)
+        } catch (err: any) {
           if (run)
             run.transcript.push({
               kind: 'status',
