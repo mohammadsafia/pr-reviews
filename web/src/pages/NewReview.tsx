@@ -305,7 +305,7 @@ export function NewReview() {
                   />
                 </div>
                 {autoSubmitOn && (
-                  <div className="border-border flex flex-col gap-3 rounded-md border border-dashed p-3">
+                  <div className="border-border flex flex-col gap-3 border-l-2 pl-3">
                     <Select
                       value={threshold}
                       onValueChange={(v) => {

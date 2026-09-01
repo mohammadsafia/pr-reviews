@@ -10,6 +10,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs } from '@/components/ui/tabs'
 import { FindingCard } from '@/components/FindingCard'
+import { parseMarkdown } from '@/lib/markdown'
 import { failedSkillNames, runHasLoginExpiry } from '@/lib/runErrors'
 import { ReviewConsole } from '@/components/ReviewConsole'
 import { StatusBadge } from '@/components/StatusBadge'
@@ -134,6 +135,27 @@ export function groupFindingsBySeverity(
       .map((finding, index) => ({ finding, index }))
       .filter((x) => x.finding.severity === severity),
   })).filter((g) => g.items.length > 0)
+}
+
+/** Renders formatCommentBody()'s output as formatted markdown instead of showing its literal
+ * `**`/``` syntax — the dialog's promise is to show precisely what will post, and raw markdown
+ * source doesn't read as "precisely what will post" to a human. */
+function CommentPreview({ body }: { body: string }) {
+  return (
+    <div className="flex flex-col gap-2 text-sm">
+      {parseMarkdown(body).map((segment, i) =>
+        segment.type === 'code' ? (
+          <pre key={i} className="bg-code-surface text-code-foreground font-family-mono overflow-x-auto rounded-md p-3 text-xs">
+            {segment.code}
+          </pre>
+        ) : (
+          <p key={i}>
+            {segment.parts.map((part, j) => (part.bold ? <strong key={j}>{part.text}</strong> : <span key={j}>{part.text}</span>))}
+          </p>
+        ),
+      )}
+    </div>
+  )
 }
 
 export function RunView() {
@@ -502,7 +524,7 @@ export function RunView() {
                           </Badge>
                         )}
                       </div>
-                      <pre className="font-family-sans whitespace-pre-wrap text-sm">{formatCommentBody(finding)}</pre>
+                      <CommentPreview body={formatCommentBody(finding)} />
                     </li>
                   )
                 })}

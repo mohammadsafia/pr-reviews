@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tooltip } from '@/components/ui/tooltip'
+import { extractFence } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
 
 import type { Finding, Severity } from '../types.js'
@@ -26,6 +27,7 @@ export function FindingCard({
   onToggle: (index: number) => void
 }) {
   const location = `${finding.file}:${finding.line}`
+  const example = finding.example ? extractFence(finding.example) : null
   return (
     <Card
       shadow="sm"
@@ -73,15 +75,19 @@ export function FindingCard({
           </div>
           <p className="font-medium">{finding.summary}</p>
           <p className="text-muted-foreground text-sm">{finding.detail}</p>
-          {finding.example && (
-            <pre className="bg-code-surface text-code-foreground font-family-mono overflow-x-auto rounded-md p-3 text-xs">
-              {finding.example}
-            </pre>
+          {example && (
+            <div className="flex flex-col gap-1">
+              <span className="text-muted-foreground text-xs font-medium">Example fix</span>
+              <pre className="bg-code-surface text-code-foreground font-family-mono overflow-x-auto rounded-md p-3 text-xs">
+                {example.code}
+              </pre>
+            </div>
           )}
           {finding.suggestion && (
-            <pre className="bg-code-surface text-code-foreground font-family-mono overflow-x-auto rounded-md p-3 text-xs">
+            <p className="text-sm">
+              <span className="font-medium">Fix: </span>
               {finding.suggestion}
-            </pre>
+            </p>
           )}
         </div>
       </Card.Content>
