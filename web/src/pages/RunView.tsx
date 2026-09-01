@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible } from '@/components/ui/collapsible'
 import { Dialog } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Select } from '@/components/ui/select'
 import { Tabs } from '@/components/ui/tabs'
 import { FindingCard } from '@/components/FindingCard'
 import { diffFindings, scopeToRetriedSkills } from '@/lib/lineage'
@@ -19,9 +20,11 @@ import { StatusBadge } from '@/components/StatusBadge'
 
 import {
   createRun,
+  getLocalSkillDirs,
   getPostPreview,
   getRun,
   postComments,
+  saveSkill,
   subscribeRun,
   type PostCommentsResult,
   type PostPreview,
@@ -171,6 +174,11 @@ export function RunView() {
   const [loadError, setLoadError] = useState('')
   const [preview, setPreview] = useState<PostPreview | null>(null)
   const [tab, setTab] = useState<'findings' | 'console'>('findings')
+  const [savingOpen, setSavingOpen] = useState(false)
+  const [localDirs, setLocalDirs] = useState<string[]>([])
+  const [saveDir, setSaveDir] = useState<string | null>(null)
+  const [saveConflict, setSaveConflict] = useState(false)
+  const [saveBusy, setSaveBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -236,6 +244,24 @@ export function RunView() {
       cancelled = true
     }
   }, [run?.parentRunId])
+
+  useEffect(() => {
+    if (!savingOpen) return
+    let cancelled = false
+    setSaveConflict(false)
+    getLocalSkillDirs()
+      .then((dirs) => {
+        if (cancelled) return
+        setLocalDirs(dirs)
+        setSaveDir((cur) => cur ?? dirs[0] ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setLocalDirs([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [savingOpen])
 
   useEffect(() => {
     if (!confirming) return
@@ -315,6 +341,27 @@ export function RunView() {
     if (res.id) navigate(`/runs/${res.id}`)
   }
 
+  async function saveSkillToDisk(overwrite = false) {
+    if (!run?.testSkillContent || !saveDir) return
+    setSaveBusy(true)
+    try {
+      const res = await saveSkill({ dir: saveDir, content: run.testSkillContent, overwrite })
+      if (res.status === 409) {
+        setSaveConflict(true)
+        return
+      }
+      if (res.ok) {
+        toast.success(res.created ? `Saved to ${res.path}` : `Updated ${res.path}`)
+        setSavingOpen(false)
+        setSaveConflict(false)
+      } else {
+        toast.error(res.error ?? 'Failed to save skill')
+      }
+    } finally {
+      setSaveBusy(false)
+    }
+  }
+
   // Once the preview loads, every selected finding gets a New/Already posted/Resolved status;
   // while it's still loading (preview === null) or the server couldn't check the PR
   // (dedupeChecked === false), every finding is treated as 'new' — dedupeChecked === false
@@ -365,7 +412,7 @@ export function RunView() {
               </Badge>
             )}
           </div>
-          {!run.isTest && (
+          {!run.isTest ? (
             <div className="flex shrink-0 gap-2">
               {run.status === 'failed' && (
                 <Button variant="secondary" size="sm" onClick={retry}>
@@ -378,6 +425,14 @@ export function RunView() {
                 </Button>
               )}
             </div>
+          ) : (
+            run.status === 'completed' && (
+              <div className="flex shrink-0 gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setSavingOpen(true)}>
+                  Save skill…
+                </Button>
+              </div>
+            )
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -618,6 +673,56 @@ export function RunView() {
             <Button onClick={post} disabled={!preview || newCount === 0}>
               Post {newCount} comment{newCount === 1 ? '' : 's'}
             </Button>
+          </Dialog.Footer>
+        </Dialog.Panel>
+      </Dialog>
+
+      <Dialog open={savingOpen} onOpenChange={setSavingOpen}>
+        <Dialog.Panel>
+          <Dialog.Header>
+            <Dialog.Title>Save skill</Dialog.Title>
+            <Dialog.Description>Writes the tested content to a local skill directory.</Dialog.Description>
+          </Dialog.Header>
+          <Dialog.Content>
+            {localDirs.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                No local skill directory configured — add one in Settings → Skills first.
+              </p>
+            ) : localDirs.length === 1 ? (
+              <p className="font-family-mono text-sm">{localDirs[0]}</p>
+            ) : (
+              <Select value={saveDir ?? undefined} onValueChange={setSaveDir}>
+                <Select.Trigger>
+                  <Select.Value placeholder="Choose a destination" />
+                </Select.Trigger>
+                <Select.Content>
+                  {localDirs.map((d) => (
+                    <Select.Item key={d} value={d}>
+                      {d}
+                    </Select.Item>
+                  ))}
+                </Select.Content>
+              </Select>
+            )}
+            {saveConflict && (
+              <p className="text-warning-400 mt-3 text-sm">
+                A skill with this name already exists at that location — overwrite it?
+              </p>
+            )}
+          </Dialog.Content>
+          <Dialog.Footer className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setSavingOpen(false)}>
+              Cancel
+            </Button>
+            {saveConflict ? (
+              <Button variant="destructive" disabled={saveBusy} onClick={() => saveSkillToDisk(true)}>
+                Overwrite
+              </Button>
+            ) : (
+              <Button disabled={saveBusy || !saveDir} onClick={() => saveSkillToDisk(false)}>
+                {saveBusy ? 'Saving…' : 'Save'}
+              </Button>
+            )}
           </Dialog.Footer>
         </Dialog.Panel>
       </Dialog>

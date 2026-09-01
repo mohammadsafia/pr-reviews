@@ -77,6 +77,31 @@ export async function createTestRun(input: {
   }
 }
 
+export const getLocalSkillDirs = () => fetch('/api/skills/local-dirs').then((r) => json<string[]>(r))
+
+export async function saveSkill(input: {
+  dir: string
+  content: string
+  overwrite?: boolean
+}): Promise<{ ok?: boolean; path?: string; created?: boolean; error?: string; status: number }> {
+  try {
+    const res = await fetch('/api/skills/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    let body: any = {}
+    try {
+      body = await res.json()
+    } catch {
+      body = { error: `Server returned a non-JSON response (HTTP ${res.status})` }
+    }
+    return { ...body, status: res.status }
+  } catch (err: any) {
+    return { error: err?.message ?? 'Network error', status: 0 }
+  }
+}
+
 export interface PostCommentsResult {
   posted: number[]
   skipped: { index: number; reason: 'already-posted' | 'resolved' }[]
