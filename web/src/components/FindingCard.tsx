@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 
 import { Card } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible } from '@/components/ui/collapsible'
 import { Tooltip } from '@/components/ui/tooltip'
 import { extractFence } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
@@ -88,6 +89,35 @@ export function FindingCard({
               <span className="font-medium">Fix: </span>
               {finding.suggestion}
             </p>
+          )}
+          {finding.context && finding.context.length > 0 && (
+            <Collapsible>
+              <Collapsible.Trigger className="text-muted-foreground hover:text-foreground w-fit text-xs">
+                Show context
+              </Collapsible.Trigger>
+              <Collapsible.Content>
+                <pre className="bg-code-surface text-code-foreground font-family-mono mt-1 overflow-x-auto rounded-md p-3 text-xs">
+                  {finding.context.map((l, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        'flex gap-2',
+                        l.type === 'add' && 'text-success',
+                        l.type === 'remove' && 'text-destructive',
+                      )}
+                    >
+                      <span className="text-muted-foreground w-8 shrink-0 text-right select-none">
+                        {l.type === 'remove' ? l.oldLine : l.newLine}
+                      </span>
+                      <span className="w-3 shrink-0 select-none">
+                        {l.type === 'add' ? '+' : l.type === 'remove' ? '-' : ''}
+                      </span>
+                      <span className="whitespace-pre">{l.text}</span>
+                    </div>
+                  ))}
+                </pre>
+              </Collapsible.Content>
+            </Collapsible>
           )}
         </div>
       </Card.Content>
